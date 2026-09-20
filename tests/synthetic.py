@@ -30,3 +30,12 @@ def make_frame(seed: int = 0, n_filaments: int = 10, contrast: float = 0.88, cen
 
     image = cv2.GaussianBlur(image + rng.normal(0, 6, image.shape).astype(np.float32), (0, 0), 1.2)
     return np.clip(image, 0, 255).astype(np.uint8), masks
+
+
+def label_dark_regions(flat: np.ndarray, level: int, min_area: int = 300):
+    """Minimal detector for tests: (label map 0..K, areas[K], boxes[K, 4]) of regions darker than `level`."""
+    n, labels, stats, _ = cv2.connectedComponentsWithStats((flat < level).astype(np.uint8), connectivity=8)
+    keep = [k for k in range(1, n) if stats[k, cv2.CC_STAT_AREA] >= min_area]
+    relabel = np.zeros(n, dtype=np.int32)
+    relabel[keep] = np.arange(1, len(keep) + 1)
+    return relabel[labels], stats[keep, cv2.CC_STAT_AREA], stats[keep, :4]

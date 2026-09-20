@@ -3,7 +3,7 @@
 import numpy as np
 from pycocotools import mask as mask_util
 
-from solar_filament import IMAGE_SIZE
+from common import IMAGE_SIZE
 
 
 def encode(mask: np.ndarray) -> str:

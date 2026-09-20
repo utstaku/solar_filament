@@ -5,7 +5,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from solar_filament import rle
+from common import rle
 
 COLUMNS = ["filament_id", "segmentation_rle"]
 

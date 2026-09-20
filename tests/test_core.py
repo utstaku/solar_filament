@@ -4,13 +4,12 @@ import cv2
 import numpy as np
 import pytest
 from pycocotools import mask as mask_util
-from synthetic import SIZE, make_frame
+from synthetic import SIZE, label_dark_regions, make_frame
 
-from solar_filament import rle, submission
-from solar_filament.annotations import load_annotations
-from solar_filament.classical import segment
-from solar_filament.metric import PanopticQuality, instance_crops
-from solar_filament.preprocess import OFF_DISK, REL_SCALE, disk_mask, flatten
+from common import rle, submission
+from common.annotations import load_annotations
+from common.metric import PanopticQuality, instance_crops
+from common.preprocess import OFF_DISK, REL_SCALE, disk_mask, flatten
 
 
 @pytest.fixture(scope="module")
@@ -61,8 +60,8 @@ def test_pq_matches_reference_implementation(frame):
     _, masks, flat = frame
     gt_rles = [mask_util.encode(np.asfortranarray(m)) for m in masks]
     crops = instance_crops(gt_rles)
-    for ratio, close_px in [(0.90, 7), (0.93, 0), (0.93, 15)]:
-        labels, areas, _ = segment(flat, ratio, 300, close_px)
+    for level in (180, 186, 190):  # REL_SCALE = 200 is the background; filaments sit ~12 % below
+        labels, areas, _ = label_dark_regions(flat, level)
         pq = PanopticQuality()
         pq.update(crops, labels, areas)
 
@@ -74,7 +73,7 @@ def test_pq_matches_reference_implementation(frame):
         expected = (int(hit.sum()), int((~hit.any(axis=1)).sum()), int((~hit.any(axis=0)).sum()))
         assert (pq.tp, pq.fp, pq.fn) == expected
         assert pq.iou_sum == pytest.approx(float(iou[hit].sum()))
-    assert pq.tp > 0  # the detector does find filaments at 12 % contrast
+    assert pq.tp > 0  # flattening makes filaments at 12 % contrast detectable by a plain threshold
 
 
 def test_pq_edge_cases(frame):
@@ -100,7 +99,7 @@ def test_pq_edge_cases(frame):
 
 def test_submission_rows(frame, tmp_path):
     _, _, flat = frame
-    labels, _, boxes = segment(flat, 0.93, 300, 15)
+    labels, _, boxes = label_dark_regions(flat, 186)
     rows = submission.rows_from_label_map("20150125172714Mh", labels, boxes)
     written = submission.write(rows, tmp_path / "submission.csv")
     assert list(written.columns) == submission.COLUMNS and len(written) == len(boxes) > 0
