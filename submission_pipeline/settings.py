@@ -13,9 +13,12 @@ PACKAGES = {
     "scoring": ROOT / "scoring",  # submission format and metric
     "preprocess": ROOT / "preprocess",  # image preprocessing
     "models": ROOT / "models",  # architectures
+    "error_analysis": ROOT / "error_analysis",  # per-instance error tables, what-if bounds, galleries
 }
 BUILD_DIR = ROOT / "build"
 OUTPUT_DIR = ROOT / "outputs"
 
-# Only these come back from a run. Weights and images stay on Kaggle.
+# Only these come back from a run by default. Weights and frames stay on Kaggle; `filament run --figures`
+# also fetches the PNG figures a notebook saved (galleries of error cases, plots).
 OUTPUT_PATTERN = r".*\.(csv|json|txt)$"
+FIGURES_PATTERN = r".*\.(csv|json|txt|png|jpg)$"

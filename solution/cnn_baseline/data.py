@@ -1,5 +1,6 @@
 """Frames as network input, soft filament targets, and tile sampling for training."""
 
+import random
 from pathlib import Path
 
 import cv2
@@ -13,6 +14,17 @@ from preprocess.disk import OFF_DISK, flatten
 from preprocess.images import read_gray
 
 OFF_DISK_VALUE = OFF_DISK / 255.0  # what the flattened channel holds outside the disk
+
+
+def split_files(files: list[str], validation_fraction: float, seed: int) -> tuple[list[str], list[str]]:
+    """(training, validation) file names: a deterministic shuffle of the physical frames.
+
+    Splitting by frame keeps the up-to-three annotation sets of one frame on the same side.
+    """
+    files = sorted(files)
+    random.Random(seed).shuffle(files)
+    n_val = max(1, round(len(files) * validation_fraction))
+    return files[n_val:], files[:n_val]
 
 
 def channels(image: np.ndarray) -> np.ndarray:

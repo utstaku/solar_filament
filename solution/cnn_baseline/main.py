@@ -21,7 +21,7 @@ import numpy as np
 import torch
 from torch.utils.data import DataLoader
 
-from cnn_baseline.data import FilamentFrames, channels, collate_tiles, worker_init
+from cnn_baseline.data import FilamentFrames, channels, collate_tiles, split_files, worker_init
 from cnn_baseline.postprocess import instances
 from cnn_baseline.training import fit, pick_device, predict
 from dataset.annotations import load_annotations
@@ -64,11 +64,9 @@ train_dir = root / "train" / "train_images"
 test_dir = root / "test" / "test_images"
 annotations = load_annotations(next((root / "train").glob("*.json")))
 files = sorted(p.name for p in train_dir.iterdir())
-random.shuffle(files)
 if QUICK:
     files = files[:24]
-n_val = max(1, round(len(files) * VALIDATION_FRACTION))
-val_files, train_files = files[:n_val], files[n_val:]
+train_files, val_files = split_files(files, VALIDATION_FRACTION, SEED)
 log(f"{len(train_files)} training frames, {len(val_files)} validation frames")
 
 train_set = FilamentFrames(train_files, train_dir, annotations, tile=TILE, tiles_per_frame=TILES_PER_FRAME)

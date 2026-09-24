@@ -17,7 +17,10 @@ The generated notebook has three parts:
 Kaggle's kernel-metadata.json is derived, not hand-written: the notebook's slug and title come from
 the entry's path, and run options from an optional magic comment at the top of the entry:
 
-    # kaggle: gpu=true accelerator=NvidiaTeslaT4 kernel_sources=<kaggle user>/filament-unet-train
+    # kaggle: gpu=true accelerator=NvidiaTeslaT4 kernel_sources={user}/filament-unet-train
+
+`{user}` in a source stands for the Kaggle account the notebook is pushed under, so an analysis
+notebook can attach the outputs of a training notebook without naming anyone.
 """
 
 import ast
@@ -81,6 +84,7 @@ def parse_options(source: str) -> KernelOptions:
 
 def kernel_metadata(entry: Path, options: KernelOptions, user: str) -> dict:
     slug = f"{settings.KERNEL_PREFIX}-{entry_name(entry)}"
+    sources = {key: [s.replace("{user}", user) for s in getattr(options, key)] for key in LIST_OPTIONS}
     return {
         "id": f"{user}/{slug}",
         "title": slug.replace("-", " ").title(),  # Kaggle requires the title to slugify back to the id
@@ -91,10 +95,10 @@ def kernel_metadata(entry: Path, options: KernelOptions, user: str) -> dict:
         "enable_gpu": options.gpu or options.accelerator is not None,
         "enable_tpu": False,
         "enable_internet": options.internet,
-        "dataset_sources": options.dataset_sources,
+        "dataset_sources": sources["dataset_sources"],
         "competition_sources": [settings.COMPETITION],
-        "kernel_sources": options.kernel_sources,
-        "model_sources": options.model_sources,
+        "kernel_sources": sources["kernel_sources"],
+        "model_sources": sources["model_sources"],
     }
 
 

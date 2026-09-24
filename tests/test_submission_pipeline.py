@@ -43,12 +43,14 @@ def test_entry_name_comes_from_the_path_under_solution():
 
 def test_kernel_metadata_is_derived_from_the_entry_path():
     entry = settings.SOLUTION_DIR / "unet_tiles" / "train.py"
-    metadata = notebook.kernel_metadata(entry, notebook.KernelOptions(gpu=True), "someone")
+    options = notebook.KernelOptions(gpu=True, kernel_sources=["{user}/filament-unet-tiles-train", "other/thing"])
+    metadata = notebook.kernel_metadata(entry, options, "someone")
     assert metadata["id"] == "someone/filament-unet-tiles-train"
     assert metadata["title"] == "Filament Unet Tiles Train"  # slugifies back to the id, as Kaggle requires
     assert metadata["code_file"] == "filament-unet-tiles-train.ipynb"
     assert metadata["enable_gpu"] and metadata["is_private"]
     assert metadata["competition_sources"] == [settings.COMPETITION]
+    assert metadata["kernel_sources"] == ["someone/filament-unet-tiles-train", "other/thing"]  # {user} filled in
 
 
 def test_generated_notebook_is_self_contained(tmp_path, monkeypatch):

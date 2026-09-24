@@ -4,6 +4,7 @@
     uv run filament run solution/classical_baseline/main.py --submit "note"   # ... and submit (asks first)
     uv run filament submit outputs/classical-baseline/submission.csv "note"
     uv run filament check  outputs/classical-baseline/submission.csv
+    uv run filament run solution/analysis/cnn_errors.py --figures        # analysis notebook, bring back its PNGs
 
 `run` does, in order: pytest -> build the notebook -> push -> wait -> fetch log and small outputs into
 outputs/<name>/ -> check submission.csv -> (with --submit) show the remaining quota, ask, submit.
@@ -72,7 +73,8 @@ def run(args: argparse.Namespace) -> int:
         return 1
 
     step(f"fetch outputs -> {out_dir.relative_to(settings.ROOT)}")
-    kaggle_cli.fetch_outputs(build.kernel_id, out_dir)
+    pattern = settings.FIGURES_PATTERN if args.figures else settings.OUTPUT_PATTERN
+    kaggle_cli.fetch_outputs(build.kernel_id, out_dir, pattern)
     for path in sorted(out_dir.iterdir()):
         print(f"  {path.stat().st_size / 1024:9.1f} KB  {path.name}")
 
@@ -97,6 +99,7 @@ def main() -> int:
     p.add_argument("--submit", metavar="MESSAGE", help="submit submission.csv afterwards (asks for confirmation)")
     p.add_argument("--build-only", action="store_true", help="stop after generating build/<name>/")
     p.add_argument("--skip-tests", action="store_true", help="do not run pytest first")
+    p.add_argument("--figures", action="store_true", help="also fetch the PNG figures the notebook saved")
     p.add_argument("--poll-sec", type=int, default=30)
     p.set_defaults(func=run)
 

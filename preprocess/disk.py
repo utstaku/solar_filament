@@ -7,8 +7,8 @@ REL_SCALE = 200  # `flatten` stores image / background as uint8, with the backgr
 OFF_DISK = 255  # value `flatten` assigns outside the (shrunk) disk
 
 
-def disk_mask(image: np.ndarray, shrink: float = 1.0) -> np.ndarray:
-    """uint8 {0, 1} mask of the solar disk, its radius scaled by `shrink`.
+def disk_geometry(image: np.ndarray) -> tuple[float, float, float]:
+    """(centre x, centre y, radius) of the solar disk in pixels; radius 0 when no disk is found.
 
     The sky around the disk is grey rather than black in many frames, hence Otsu instead of a fixed
     threshold. Centre and radius come from the blob's centroid and area, which ignores prominences.
@@ -16,12 +16,18 @@ def disk_mask(image: np.ndarray, shrink: float = 1.0) -> np.ndarray:
     blurred = cv2.GaussianBlur(image, (0, 0), 5)
     _, binary = cv2.threshold(blurred, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
     n, _, stats, centroids = cv2.connectedComponentsWithStats(binary, connectivity=8)
-    mask = np.zeros_like(image, dtype=np.uint8)
     if n < 2:
-        return mask
+        return image.shape[1] / 2, image.shape[0] / 2, 0.0
     k = 1 + int(np.argmax(stats[1:, cv2.CC_STAT_AREA]))
-    radius = float(np.sqrt(stats[k, cv2.CC_STAT_AREA] / np.pi))
-    cv2.circle(mask, (round(centroids[k][0]), round(centroids[k][1])), int(radius * shrink), 1, -1)
+    return float(centroids[k][0]), float(centroids[k][1]), float(np.sqrt(stats[k, cv2.CC_STAT_AREA] / np.pi))
+
+
+def disk_mask(image: np.ndarray, shrink: float = 1.0) -> np.ndarray:
+    """uint8 {0, 1} mask of the solar disk, its radius scaled by `shrink`."""
+    cx, cy, radius = disk_geometry(image)
+    mask = np.zeros_like(image, dtype=np.uint8)
+    if radius > 0:
+        cv2.circle(mask, (round(cx), round(cy)), int(radius * shrink), 1, -1)
     return mask
 
 
