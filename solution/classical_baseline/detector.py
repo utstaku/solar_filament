@@ -3,7 +3,7 @@
 import cv2
 import numpy as np
 
-from common.preprocess import REL_SCALE
+from preprocess.disk import REL_SCALE
 
 MAX_AREA = 80_000  # px; the 99th percentile of ground-truth filament area is ~14k
 MAX_INSTANCES = 40  # ground truth never exceeds 26 filaments per image

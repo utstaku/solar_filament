@@ -13,7 +13,7 @@ from pathlib import Path
 
 from pycocotools import mask as mask_util
 
-from common import IMAGE_SIZE
+from dataset import IMAGE_SIZE
 
 
 @dataclass

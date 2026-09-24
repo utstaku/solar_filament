@@ -8,9 +8,9 @@ import torch
 from pycocotools import mask as mask_util
 from torch.utils.data import Dataset
 
-from common.annotations import Annotations
-from common.images import read_gray
-from common.preprocess import OFF_DISK, flatten
+from dataset.annotations import Annotations
+from preprocess.disk import OFF_DISK, flatten
+from preprocess.images import read_gray
 
 OFF_DISK_VALUE = OFF_DISK / 255.0  # what the flattened channel holds outside the disk
 

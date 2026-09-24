@@ -19,12 +19,13 @@ import numpy as np
 from pycocotools import mask as mask_util
 
 from classical_baseline.detector import segment
-from common import IMAGE_SIZE, submission
-from common.annotations import load_annotations
-from common.images import read_gray
-from common.metric import PanopticQuality, instance_crops
-from common.paths import find_data_root, output_dir
-from common.preprocess import flatten
+from dataset import IMAGE_SIZE
+from dataset.annotations import load_annotations
+from dataset.paths import find_data_root, output_dir
+from preprocess.disk import flatten
+from preprocess.images import read_gray
+from scoring import submission
+from scoring.metric import PanopticQuality, instance_crops
 
 SEED = 0
 N_TUNE_IMAGES = 60  # training images used for the parameter sweep

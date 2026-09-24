@@ -5,7 +5,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from common import rle
+from scoring import rle
 
 COLUMNS = ["filament_id", "segmentation_rle"]
 

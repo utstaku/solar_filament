@@ -7,9 +7,9 @@ import numpy as np
 import pandas as pd
 from pycocotools import mask as mask_util
 
-from common import IMAGE_SIZE, rle
-from common.submission import COLUMNS
-from submission_pipeline import settings
+from dataset import IMAGE_SIZE, N_TEST_IMAGES
+from scoring import rle
+from scoring.submission import COLUMNS
 
 ID_PATTERN = re.compile(r"^\d{14}[A-Z][a-z]_\w+$")  # e.g. 20150125172714Mh_1
 
@@ -43,14 +43,14 @@ def check(path: Path) -> list[str]:
         errors.append(f"{areas.count(0)} empty masks")
 
     n_images = image_ids.nunique()
-    print(f"{path}: {len(df)} filaments over {n_images}/{settings.N_TEST_IMAGES} test images")
+    print(f"{path}: {len(df)} filaments over {n_images}/{N_TEST_IMAGES} test images")
     if areas:
         q = np.percentile(areas, [0, 50, 100]).astype(int)
         print(f"  filaments/image: {len(df) / max(n_images, 1):.1f} | area px min/median/max: {q[0]}/{q[1]}/{q[2]}")
     if overlap_images:
         print(f"  warning: predicted filaments overlap each other in {overlap_images} images")
-    if n_images < settings.N_TEST_IMAGES:
-        print(f"  warning: {settings.N_TEST_IMAGES - n_images} test images have no prediction")
+    if n_images < N_TEST_IMAGES:
+        print(f"  warning: {N_TEST_IMAGES - n_images} test images have no prediction")
     for error in errors:
         print("  ERROR:", error)
     print("  OK" if not errors else f"  {len(errors)} error(s)")

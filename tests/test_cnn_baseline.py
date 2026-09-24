@@ -11,9 +11,9 @@ from torch.utils.data import DataLoader
 from cnn_baseline.data import FilamentFrames, channels, collate_tiles, soft_target
 from cnn_baseline.postprocess import instances
 from cnn_baseline.training import bce_dice_loss, fit, predict
-from common.annotations import load_annotations
-from common.metric import PanopticQuality, instance_crops
+from dataset.annotations import load_annotations
 from models.unet import UNet
+from scoring.metric import PanopticQuality, instance_crops
 
 
 def polygon(mask: np.ndarray) -> list[list[float]]:

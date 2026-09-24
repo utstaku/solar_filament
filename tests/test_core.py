@@ -6,10 +6,10 @@ import pytest
 from pycocotools import mask as mask_util
 from synthetic import SIZE, label_dark_regions, make_frame
 
-from common import rle, submission
-from common.annotations import load_annotations
-from common.metric import PanopticQuality, instance_crops
-from common.preprocess import OFF_DISK, REL_SCALE, disk_mask, flatten
+from dataset.annotations import load_annotations
+from preprocess.disk import OFF_DISK, REL_SCALE, disk_mask, flatten
+from scoring import rle, submission
+from scoring.metric import PanopticQuality, instance_crops
 
 
 @pytest.fixture(scope="module")

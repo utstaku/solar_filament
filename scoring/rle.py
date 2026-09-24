@@ -3,7 +3,7 @@
 import numpy as np
 from pycocotools import mask as mask_util
 
-from common import IMAGE_SIZE
+from dataset import IMAGE_SIZE
 
 
 def encode(mask: np.ndarray) -> str:

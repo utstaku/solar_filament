@@ -7,9 +7,9 @@ import pandas as pd
 import pytest
 from synthetic import SIZE
 
-from common import rle
+from scoring import rle
+from scoring.check import check
 from submission_pipeline import kaggle_cli, notebook, settings
-from submission_pipeline.check import check
 
 ENTRY = settings.SOLUTION_DIR / "classical_baseline" / "main.py"
 
@@ -72,17 +72,32 @@ def test_generated_notebook_is_self_contained(tmp_path, monkeypatch):
         else:
             compile(source, "<cell>", "exec")  # every ordinary code cell is valid Python
 
-    parent = settings.SOLUTION_DIR
-    common = {"__init__", "annotations", "images", "metric", "paths", "preprocess", "rle", "submission"}
+    shared = {
+        "dataset/__init__.py",
+        "dataset/annotations.py",
+        "dataset/paths.py",
+        "scoring/__init__.py",
+        "scoring/metric.py",
+        "scoring/rle.py",  # via submission
+        "scoring/submission.py",  # never scoring/check.py: that runs locally
+        "preprocess/__init__.py",
+        "preprocess/disk.py",
+        "preprocess/images.py",
+    }
     approach = {"classical_baseline/__init__.py", "classical_baseline/detector.py"}  # never main.py, the entry itself
-    assert set(written) == {f"common/{name}.py" for name in common} | approach
+    assert set(written) == shared | approach
     for relative, body in written.items():
-        assert body.strip("\n") == (parent / relative).read_text().strip("\n")
+        source = (
+            settings.ROOT / relative
+            if relative.split("/")[0] in settings.PACKAGES
+            else settings.SOLUTION_DIR / relative
+        )
+        assert body.strip("\n") == source.read_text().strip("\n")
         target = tmp_path / "kaggle" / relative
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(body)
 
-    probe = "import common.submission, classical_baseline.detector; print(common.__file__)"
+    probe = "import scoring.submission, dataset.annotations, preprocess.disk, classical_baseline.detector; print(scoring.__file__)"
     result = subprocess.run(
         [sys.executable, "-c", probe], cwd=tmp_path / "kaggle", capture_output=True, text=True, check=True
     )
@@ -103,8 +118,9 @@ def test_cnn_entry_ships_its_model_and_approach_modules(tmp_path, monkeypatch):
     }
     assert {"models/__init__.py", "models/unet.py", "cnn_baseline/data.py", "cnn_baseline/training.py"} <= written
     assert not any(name.endswith("main.py") for name in written) and "classical_baseline/detector.py" not in written
-    assert notebook.resolve("models.unet") == [settings.MODELS_DIR / "__init__.py", settings.MODELS_DIR / "unet.py"]
-    assert notebook.shipped_path(settings.MODELS_DIR / "unet.py") == "models/unet.py"  # importable as models.unet
+    models = settings.PACKAGES["models"]
+    assert notebook.resolve("models.unet") == [models / "__init__.py", models / "unet.py"]
+    assert notebook.shipped_path(models / "unet.py") == "models/unet.py"  # importable as models.unet
 
 
 def test_only_imported_modules_are_shipped(tmp_path, monkeypatch):

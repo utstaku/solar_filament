@@ -1,4 +1,4 @@
-"""Photometric preprocessing of full-disk H-alpha frames."""
+"""Solar-disk geometry and limb-darkening removal for full-disk H-alpha frames."""
 
 import cv2
 import numpy as np

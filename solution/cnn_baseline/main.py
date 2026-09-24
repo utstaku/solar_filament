@@ -24,12 +24,12 @@ from torch.utils.data import DataLoader
 from cnn_baseline.data import FilamentFrames, channels, collate_tiles, worker_init
 from cnn_baseline.postprocess import instances
 from cnn_baseline.training import fit, pick_device, predict
-from common import submission
-from common.annotations import load_annotations
-from common.images import read_gray
-from common.metric import PanopticQuality, instance_crops
-from common.paths import find_data_root, output_dir
+from dataset.annotations import load_annotations
+from dataset.paths import find_data_root, output_dir
 from models.unet import UNet
+from preprocess.images import read_gray
+from scoring import submission
+from scoring.metric import PanopticQuality, instance_crops
 
 QUICK = False  # True: a few frames and epochs, to check that the whole notebook runs
 SEED = 0
