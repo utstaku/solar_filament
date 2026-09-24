@@ -14,10 +14,15 @@ solution/     ★ 開発はここだけ。中身は純粋なPython。手法ご�
   classical_baseline/      手法1つ = ディレクトリ1つ
     detector.py              その手法だけのコード（main.py から import）
     main.py                  実行スクリプト（1ファイル = Kaggle notebook 1本）→ notebook「filament-classical-baseline」
-  unet/                    （例）手法専用のモジュールと、複数の実行スクリプト
-    model.py  data.py  losses.py
-    train.py                 → 「filament-unet-train」（学習して重みを出力）
-    predict.py               → 「filament-unet-predict」（train の出力を kernel_sources で参照し submission.csv を出力）
+  cnn_baseline/            CNNによる最初の学習型ベースライン
+    data.py                  読込・ソフトラベル（複数アノテーターの平均）・タイル切り出し
+    training.py              学習ループ（AdamW + one-cycle、CUDAではAMP）と全フレーム推論
+    postprocess.py           確率マップ → 個体（しきい値 + 連結成分）
+    main.py                  → notebook「filament-cnn-baseline」（GPU）
+  <次の手法>/               学習用と推論用を分けるなら train.py / predict.py → 「filament-<手法>-train」「…-predict」
+
+models/       ★ モデル定義。手法をまたいで使い回す（学習の手順は含めない）。`from models.unet import UNet`
+  unet.py                  ごく普通のU-Net（事前学習なし、pure PyTorch）
 
 submission_pipeline/   ★ 提出パイプライン一式。普段は触らない。コマンドは1つ
   cli.py  notebook.py  kaggle_cli.py  check.py  settings.py
@@ -37,7 +42,7 @@ uv run filament run solution/classical_baseline/main.py --submit "メモ"   # �
 `run` が順に行うこと:
 
 1. `pytest`（失敗したらpushしない。GPU枠をバグで溶かさないため）
-2. 実行スクリプトと、それが import している `solution/` 内のモジュール**だけ**から自己完結したnotebookを生成（`build/<name>/`）
+2. 実行スクリプトと、それが import している `solution/`・`models/` のモジュール**だけ**から自己完結したnotebookを生成（`build/<name>/`）
 3. Kaggleへpush（private）→ 完了まで待機
 4. ログと小さい出力（csv/json/txt）だけを `outputs/<name>/` に取得。重みや画像はKaggleに残す
 5. `submission.csv` の形式チェック（列・ID・RLEの妥当性・空マスク・重なり）
@@ -55,12 +60,15 @@ notebook名はこれに `filament-` を付けたもの。
 
 ## 開発の流れ
 
-1. **書く**: 手法ごとに `solution/<手法名>/` を作り、その手法だけのコード（モデル・損失・学習ループ・後処理）と
+1. **書く**: モデルの定義は `models/`。手法ごとに `solution/<手法名>/` を作り、その手法だけのコード（損失・学習ループ・後処理）と
    実行スクリプト（`main.py`、または `train.py` / `predict.py` のように複数）を置く。どの手法でも使う処理だけ `solution/common/`。
    実行スクリプトは percent 形式（`# %%` でコードセル、`# %% [markdown]` でMarkdownセル）で、
    `from common.metric import ...` や `from unet.model import ...` と普通に import する（`__init__.py` は無くてもよい）。
 2. **ローカルで確かめる**: `uv run pytest`。データは無いので `tests/synthetic.py` の合成画像
    （灰色の空・明るいリム・周縁減光・低コントラストのフィラメント）とダミーテンソルで、形状・損失・数ステップの学習まで。
+   notebook全体の流れも、合成データをKaggleと同じ配置で置き、`FILAMENT_DATA=<その場所> FILAMENT_OUTPUT=<出力先>`
+   を付けて実行スクリプトを `python` で走らせれば、GPUを使う前にローカルで通せる
+   （macOSでは DataLoader の `num_workers=0` にすること。spawn方式のワーカーがスクリプト全体を再実行してしまう）。
 3. **Kaggleで実行**: `uv run filament run solution/<手法名>/<スクリプト>.py`。図はnotebook内に描画されるのでKaggleのページで見る。
 4. **結果を見る**: `outputs/<name>/run.log` とレポートJSON。直して 1 に戻る。
 
@@ -74,7 +82,7 @@ Kaggle側の設定ファイルは書かない。notebookのslugとタイトル�
 （`gpu` / `internet` / `accelerator` / `kernel_sources` / `dataset_sources` / `model_sources`。GPUは週30h枠。
 学習済み重みは学習notebookの出力としてKaggleに残し、推論側から `kernel_sources` で参照する。）
 
-生成されたnotebookでは、実行スクリプトが（間接的にでも）import しているモジュールだけが `%%writefile` セルになりKaggle上で実ファイルとして
+生成されたnotebookでは、実行スクリプトが（間接的にでも）import している `solution/`・`models/` のモジュールだけが `%%writefile` セルになりKaggle上で実ファイルとして
 書き出されるので、import もトレースバックの行番号もローカルと同じ。生成物（`build/`）は手で編集しない・
 gitに入れない。Kaggle上で試行錯誤した変更は `solution/` に書き戻す。最終提出用のnotebookも同じ仕組みで生成する。
 

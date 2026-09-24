@@ -21,6 +21,7 @@ from pycocotools import mask as mask_util
 from classical_baseline.detector import segment
 from common import IMAGE_SIZE, submission
 from common.annotations import load_annotations
+from common.images import read_gray
 from common.metric import PanopticQuality, instance_crops
 from common.paths import find_data_root, output_dir
 from common.preprocess import flatten
@@ -32,13 +33,6 @@ T0 = time.time()
 
 def log(*args):
     print(f"[{time.time() - T0:5.0f}s]", *args, flush=True)
-
-
-def read_gray(path) -> np.ndarray:
-    image = cv2.imread(str(path), cv2.IMREAD_GRAYSCALE)
-    if image is None:
-        raise OSError(f"cannot read {path}")
-    return image
 
 
 # %% [markdown]

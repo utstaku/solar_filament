@@ -7,7 +7,10 @@ KERNEL_PREFIX = "filament"  # solution/unet_tiles.py runs as the notebook <your 
 N_TEST_IMAGES = 180
 
 ROOT = Path(__file__).resolve().parents[1]
-SOLUTION_DIR = ROOT / "solution"  # entry scripts and the packages they import
+SOLUTION_DIR = ROOT / "solution"  # entry scripts and the approach packages they import
+MODELS_DIR = ROOT / "models"  # model architectures: a package of its own, shared by every approach
+# import names that are packages outside solution/; everything else resolves under SOLUTION_DIR
+PACKAGES = {"models": MODELS_DIR}
 BUILD_DIR = ROOT / "build"
 OUTPUT_DIR = ROOT / "outputs"
 

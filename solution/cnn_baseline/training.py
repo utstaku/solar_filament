@@ -1,0 +1,82 @@
+"""Training loop and full-frame inference for a binary segmentation network."""
+
+import time
+from collections.abc import Iterable, Iterator
+
+import numpy as np
+import torch
+from torch import nn
+from torch.nn import functional as F
+from torch.utils.data import DataLoader
+
+
+def pick_device() -> torch.device:
+    if torch.cuda.is_available():
+        return torch.device("cuda")
+    if torch.backends.mps.is_available():
+        return torch.device("mps")
+    return torch.device("cpu")
+
+
+def bce_dice_loss(logits: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+    """BCE for per-pixel accuracy plus soft Dice for the 0.4 % of pixels that are filament.
+
+    Both accept soft targets, so annotator disagreement flows into the loss as fractional labels.
+    """
+    logits, target = logits.squeeze(1).float(), target.float()
+    bce = F.binary_cross_entropy_with_logits(logits, target)
+    prob = torch.sigmoid(logits)
+    intersection = (prob * target).sum(dim=(1, 2))
+    dice = 1 - (2 * intersection + 1) / (prob.sum(dim=(1, 2)) + target.sum(dim=(1, 2)) + 1)
+    return bce + dice.mean()
+
+
+def fit(
+    model: nn.Module,
+    loader: DataLoader,
+    epochs: int,
+    lr: float = 1e-3,
+    device: torch.device | None = None,
+    log=print,
+) -> list[float]:
+    """AdamW + one-cycle schedule, mixed precision on CUDA. Returns the mean loss of each epoch."""
+    device = device or pick_device()
+    model.to(device)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=1e-4)
+    schedule = torch.optim.lr_scheduler.OneCycleLR(optimizer, max_lr=lr, total_steps=epochs * len(loader))
+    use_amp = device.type == "cuda"
+    scaler = torch.amp.GradScaler(enabled=use_amp)
+    history = []
+    for epoch in range(1, epochs + 1):
+        model.train()
+        start, total, steps = time.time(), 0.0, 0
+        for x, y in loader:
+            x, y = x.to(device, non_blocking=True), y.to(device, non_blocking=True)
+            with torch.autocast(device_type=device.type, dtype=torch.float16, enabled=use_amp):
+                loss = bce_dice_loss(model(x), y)
+            optimizer.zero_grad(set_to_none=True)
+            scaler.scale(loss).backward()
+            scaler.step(optimizer)
+            scaler.update()
+            schedule.step()
+            total, steps = total + loss.item(), steps + 1
+        history.append(total / max(steps, 1))
+        log(
+            f"epoch {epoch}/{epochs}  loss {history[-1]:.4f}  lr {schedule.get_last_lr()[0]:.2e}  {time.time() - start:.0f}s"
+        )
+    return history
+
+
+@torch.no_grad()
+def predict(
+    model: nn.Module, frames: Iterable[torch.Tensor], device: torch.device | None = None
+) -> Iterator[np.ndarray]:
+    """Yield a uint8 (H, W) probability map (probability * 255) for each (2, H, W) frame."""
+    device = device or pick_device()
+    model.to(device).eval()
+    use_amp = device.type == "cuda"
+    for frame in frames:
+        with torch.autocast(device_type=device.type, dtype=torch.float16, enabled=use_amp):
+            logits = model(frame.unsqueeze(0).to(device))
+        prob = torch.sigmoid(logits.float()).squeeze().mul(255).round().to(torch.uint8)
+        yield prob.cpu().numpy()

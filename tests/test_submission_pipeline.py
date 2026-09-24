@@ -73,7 +73,7 @@ def test_generated_notebook_is_self_contained(tmp_path, monkeypatch):
             compile(source, "<cell>", "exec")  # every ordinary code cell is valid Python
 
     parent = settings.SOLUTION_DIR
-    common = {"__init__", "annotations", "metric", "paths", "preprocess", "rle", "submission"}  # rle via submission
+    common = {"__init__", "annotations", "images", "metric", "paths", "preprocess", "rle", "submission"}
     approach = {"classical_baseline/__init__.py", "classical_baseline/detector.py"}  # never main.py, the entry itself
     assert set(written) == {f"common/{name}.py" for name in common} | approach
     for relative, body in written.items():
@@ -89,6 +89,24 @@ def test_generated_notebook_is_self_contained(tmp_path, monkeypatch):
     assert result.stdout.strip().startswith(str(tmp_path.resolve()))  # the copy, not the installed package
 
 
+def test_cnn_entry_ships_its_model_and_approach_modules(tmp_path, monkeypatch):
+    monkeypatch.setattr(settings, "BUILD_DIR", tmp_path / "build")
+    build = notebook.build(settings.SOLUTION_DIR / "cnn_baseline" / "main.py", user="someone")
+    assert build.kernel_id == "someone/filament-cnn-baseline"
+    metadata = json.loads((build.directory / "kernel-metadata.json").read_text())
+    assert metadata["enable_gpu"] is True  # from the "# kaggle: gpu=true" line
+    cells = json.loads((build.directory / metadata["code_file"]).read_text())["cells"]
+    written = {
+        "".join(c["source"]).split("\n", 1)[0].split(" ", 1)[1]
+        for c in cells
+        if "".join(c["source"]).startswith("%%writefile ")
+    }
+    assert {"models/__init__.py", "models/unet.py", "cnn_baseline/data.py", "cnn_baseline/training.py"} <= written
+    assert not any(name.endswith("main.py") for name in written) and "classical_baseline/detector.py" not in written
+    assert notebook.resolve("models.unet") == [settings.MODELS_DIR / "__init__.py", settings.MODELS_DIR / "unet.py"]
+    assert notebook.shipped_path(settings.MODELS_DIR / "unet.py") == "models/unet.py"  # importable as models.unet
+
+
 def test_only_imported_modules_are_shipped(tmp_path, monkeypatch):
     """Follow imports through solution/: unused modules, other approaches and the entry itself stay out."""
     files = {
@@ -102,15 +120,24 @@ def test_only_imported_modules_are_shipped(tmp_path, monkeypatch):
         "unet/predict.py": "from unet.model import Net\n",  # another entry of the same approach
         "yolo/detector.py": "",  # a directory without __init__.py is still a package
         "yolo/unused.py": "",
+        "../zoo/__init__.py": "",  # a package outside solution/, like models/
+        "../zoo/net.py": "from common.metric import PanopticQuality",
+        "../zoo/unused.py": "",
     }
     for name, body in files.items():
         (tmp_path / name).parent.mkdir(parents=True, exist_ok=True)
         (tmp_path / name).write_text(body)
     monkeypatch.setattr(settings, "SOLUTION_DIR", tmp_path)
+    monkeypatch.setattr(settings, "PACKAGES", {"zoo": (tmp_path / "../zoo").resolve()})
 
     entry = tmp_path / "unet" / "train.py"
-    source = "%matplotlib inline\nimport torch\n" + entry.read_text() + "from yolo.detector import detect\n"
-    shipped = [f.relative_to(tmp_path).as_posix() for f in notebook.imported_files(source, exclude=(entry,))]
+    source = (
+        "%matplotlib inline\nimport torch\n"
+        + entry.read_text()
+        + "from yolo.detector import detect\nfrom zoo.net import Net\n"
+    )
+    files = notebook.imported_files(source, exclude=(entry,))
+    shipped = [notebook.shipped_path(f) for f in files]
     assert shipped == [
         "common/__init__.py",
         "common/metric.py",
@@ -118,6 +145,8 @@ def test_only_imported_modules_are_shipped(tmp_path, monkeypatch):
         "unet/__init__.py",
         "unet/model.py",
         "yolo/detector.py",
+        "zoo/__init__.py",
+        "zoo/net.py",
     ]
     assert notebook.imported_files("import torch\n") == [] and notebook.module_cells([]) == []
 
