@@ -3,8 +3,7 @@
 from pathlib import Path
 
 COMPETITION = "filament-segmentation-2026"
-KAGGLE_USER = "takuroabe"
-KERNEL_PREFIX = "filament"  # solution/unet_tiles.py runs as the notebook <KAGGLE_USER>/filament-unet-tiles
+KERNEL_PREFIX = "filament"  # solution/unet_tiles.py runs as the notebook <your kaggle user>/filament-unet-tiles
 N_TEST_IMAGES = 180
 
 ROOT = Path(__file__).resolve().parents[1]

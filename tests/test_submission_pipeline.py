@@ -1,7 +1,6 @@
 import json
 import subprocess
 import sys
-from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -12,7 +11,7 @@ from common import rle
 from submission_pipeline import kaggle_cli, notebook, settings
 from submission_pipeline.check import check
 
-ENTRY = settings.ROOT / "solution" / "classical_baseline.py"
+ENTRY = settings.SOLUTION_DIR / "classical_baseline" / "main.py"
 
 
 def test_percent_cells_and_options():
@@ -33,11 +32,21 @@ def test_percent_cells_and_options():
         notebook.parse_options("# kaggle: gpus=true\n")
 
 
-def test_kernel_metadata_is_derived_from_the_file_name():
-    metadata = notebook.kernel_metadata(Path("solution/unet_tiles.py"), notebook.KernelOptions(gpu=True))
-    assert metadata["id"] == f"{settings.KAGGLE_USER}/filament-unet-tiles"
-    assert metadata["title"] == "Filament Unet Tiles"  # slugifies back to the id, as Kaggle requires
-    assert metadata["code_file"] == "filament-unet-tiles.ipynb"
+def test_entry_name_comes_from_the_path_under_solution():
+    solution = settings.SOLUTION_DIR
+    assert notebook.entry_name(solution / "unet_tiles" / "train.py") == "unet-tiles-train"
+    assert notebook.entry_name(solution / "unet_tiles" / "main.py") == "unet-tiles"  # main.py = the directory itself
+    assert notebook.entry_name(solution / "main.py") == "main"
+    with pytest.raises(SystemExit):
+        notebook.entry_name(settings.ROOT / "tests" / "synthetic.py")
+
+
+def test_kernel_metadata_is_derived_from_the_entry_path():
+    entry = settings.SOLUTION_DIR / "unet_tiles" / "train.py"
+    metadata = notebook.kernel_metadata(entry, notebook.KernelOptions(gpu=True), "someone")
+    assert metadata["id"] == "someone/filament-unet-tiles-train"
+    assert metadata["title"] == "Filament Unet Tiles Train"  # slugifies back to the id, as Kaggle requires
+    assert metadata["code_file"] == "filament-unet-tiles-train.ipynb"
     assert metadata["enable_gpu"] and metadata["is_private"]
     assert metadata["competition_sources"] == [settings.COMPETITION]
 
@@ -45,9 +54,10 @@ def test_kernel_metadata_is_derived_from_the_file_name():
 def test_generated_notebook_is_self_contained(tmp_path, monkeypatch):
     """The modules written by the %%writefile cells must import on their own and match solution/ exactly."""
     monkeypatch.setattr(settings, "BUILD_DIR", tmp_path / "build")
-    build = notebook.build(ENTRY)
+    build = notebook.build(ENTRY, user="someone")  # no kaggle sign-in needed to run the tests
     metadata = json.loads((build.directory / "kernel-metadata.json").read_text())
-    assert build.kernel_id == metadata["id"] == f"{settings.KAGGLE_USER}/filament-classical-baseline"
+    assert build.name == "classical-baseline" and build.directory == tmp_path / "build" / "classical-baseline"
+    assert build.kernel_id == metadata["id"] == "someone/filament-classical-baseline"
     cells = json.loads((build.directory / metadata["code_file"]).read_text())["cells"]
     assert cells[0]["cell_type"] == "markdown"  # the entry's own title stays on top
 
@@ -63,15 +73,16 @@ def test_generated_notebook_is_self_contained(tmp_path, monkeypatch):
             compile(source, "<cell>", "exec")  # every ordinary code cell is valid Python
 
     parent = settings.SOLUTION_DIR
-    shipped = {"__init__", "annotations", "metric", "paths", "preprocess", "rle", "submission"}  # rle via submission
-    assert set(written) == {f"common/{name}.py" for name in shipped}
+    common = {"__init__", "annotations", "metric", "paths", "preprocess", "rle", "submission"}  # rle via submission
+    approach = {"classical_baseline/__init__.py", "classical_baseline/detector.py"}  # never main.py, the entry itself
+    assert set(written) == {f"common/{name}.py" for name in common} | approach
     for relative, body in written.items():
         assert body.strip("\n") == (parent / relative).read_text().strip("\n")
         target = tmp_path / "kaggle" / relative
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(body)
 
-    probe = "import common.preprocess, common.submission; print(common.__file__)"
+    probe = "import common.submission, classical_baseline.detector; print(common.__file__)"
     result = subprocess.run(
         [sys.executable, "-c", probe], cwd=tmp_path / "kaggle", capture_output=True, text=True, check=True
     )
@@ -79,7 +90,7 @@ def test_generated_notebook_is_self_contained(tmp_path, monkeypatch):
 
 
 def test_only_imported_modules_are_shipped(tmp_path, monkeypatch):
-    """Follow imports through solution/: unused modules, other approaches and entry scripts stay out."""
+    """Follow imports through solution/: unused modules, other approaches and the entry itself stay out."""
     files = {
         "common/__init__.py": "",
         "common/rle.py": "import numpy",
@@ -87,19 +98,38 @@ def test_only_imported_modules_are_shipped(tmp_path, monkeypatch):
         "common/unused.py": "",
         "unet/__init__.py": "",
         "unet/model.py": "from common.metric import PanopticQuality",
-        "yolo/__init__.py": "",
-        "yolo/detector.py": "",
-        "other_entry.py": "",
+        "unet/train.py": "from unet.model import Net\n",  # the entry
+        "unet/predict.py": "from unet.model import Net\n",  # another entry of the same approach
+        "yolo/detector.py": "",  # a directory without __init__.py is still a package
+        "yolo/unused.py": "",
     }
     for name, body in files.items():
         (tmp_path / name).parent.mkdir(parents=True, exist_ok=True)
         (tmp_path / name).write_text(body)
     monkeypatch.setattr(settings, "SOLUTION_DIR", tmp_path)
 
-    entry = "%matplotlib inline\nimport torch\nimport other_entry\nfrom unet.model import Net\n"
-    shipped = [f.relative_to(tmp_path).as_posix() for f in notebook.imported_files(entry)]
-    assert shipped == ["common/__init__.py", "common/metric.py", "common/rle.py", "unet/__init__.py", "unet/model.py"]
+    entry = tmp_path / "unet" / "train.py"
+    source = "%matplotlib inline\nimport torch\n" + entry.read_text() + "from yolo.detector import detect\n"
+    shipped = [f.relative_to(tmp_path).as_posix() for f in notebook.imported_files(source, exclude=(entry,))]
+    assert shipped == [
+        "common/__init__.py",
+        "common/metric.py",
+        "common/rle.py",
+        "unet/__init__.py",
+        "unet/model.py",
+        "yolo/detector.py",
+    ]
     assert notebook.imported_files("import torch\n") == [] and notebook.module_cells([]) == []
+
+
+def test_current_user_is_read_from_the_kaggle_config(monkeypatch):
+    replies = iter(
+        ["Configuration values from ~/.kaggle\n- username: teammate\n- auth_method: OAUTH\n", "- username: None\n"]
+    )
+    monkeypatch.setattr(kaggle_cli, "kaggle", lambda *args, **kwargs: next(replies))
+    assert kaggle_cli.current_user() == "teammate"
+    with pytest.raises(SystemExit):
+        kaggle_cli.current_user()
 
 
 def test_wait_survives_network_errors(monkeypatch):

@@ -1,4 +1,8 @@
-"""Turn solution/<entry>.py plus the modules it imports into one self-contained Kaggle notebook.
+"""Turn an entry script under solution/ plus the modules it imports into one self-contained Kaggle notebook.
+
+solution/ holds one directory per approach, e.g. solution/unet/, whose scripts are entries:
+solution/unet/train.py becomes the notebook `filament-unet-train`, solution/unet/predict.py
+`filament-unet-predict`; a directory's main.py is named after the directory alone.
 
 The generated notebook has three parts:
   1. the entry's own title, then a note saying the notebook is generated;
@@ -10,9 +14,9 @@ The generated notebook has three parts:
      opens a code cell, `# %% [markdown]` opens a markdown cell whose lines are comments.
 
 Kaggle's kernel-metadata.json is derived, not hand-written: the notebook's slug and title come from
-the entry's file name, and run options from an optional magic comment at the top of the entry:
+the entry's path, and run options from an optional magic comment at the top of the entry:
 
-    # kaggle: gpu=true accelerator=NvidiaTeslaT4 kernel_sources=takuroabe/filament-unet-train
+    # kaggle: gpu=true accelerator=NvidiaTeslaT4 kernel_sources=<kaggle user>/filament-unet-train
 """
 
 import ast
@@ -22,7 +26,7 @@ import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from submission_pipeline import settings
+from submission_pipeline import kaggle_cli, settings
 
 CELL_MARKER = "# %%"
 OPTIONS_LINE = re.compile(r"^# kaggle:(.*)$", re.MULTILINE)
@@ -41,9 +45,21 @@ class KernelOptions:
 
 @dataclass
 class Build:
+    name: str  # e.g. `unet-train`; names the notebook, build/<name>/ and outputs/<name>/
     directory: Path  # holds the notebook and kernel-metadata.json, ready for `kaggle kernels push -p`
     kernel_id: str
     options: KernelOptions
+
+
+def entry_name(entry: Path) -> str:
+    """`solution/unet/train.py` -> `unet-train`; `solution/unet/main.py` -> `unet`."""
+    try:
+        parts = list(entry.resolve().relative_to(settings.SOLUTION_DIR).with_suffix("").parts)
+    except ValueError:
+        raise SystemExit(f"{entry} is not under {settings.SOLUTION_DIR}") from None
+    if len(parts) > 1 and parts[-1] == "main":
+        parts.pop()
+    return "-".join(parts).replace("_", "-")
 
 
 def parse_options(source: str) -> KernelOptions:
@@ -62,10 +78,10 @@ def parse_options(source: str) -> KernelOptions:
     return options
 
 
-def kernel_metadata(entry: Path, options: KernelOptions) -> dict:
-    slug = f"{settings.KERNEL_PREFIX}-{entry.stem.replace('_', '-')}"
+def kernel_metadata(entry: Path, options: KernelOptions, user: str) -> dict:
+    slug = f"{settings.KERNEL_PREFIX}-{entry_name(entry)}"
     return {
-        "id": f"{settings.KAGGLE_USER}/{slug}",
+        "id": f"{user}/{slug}",
         "title": slug.replace("-", " ").title(),  # Kaggle requires the title to slugify back to the id
         "code_file": f"{slug}.ipynb",
         "language": "python",
@@ -113,26 +129,31 @@ def percent_cells(source: str) -> list[dict]:
 
 
 def resolve(name: str) -> list[Path]:
-    """Files under solution/ behind a dotted name: `common.rle` -> common/__init__.py, common/rle.py."""
+    """Files under solution/ behind a dotted name: `common.rle` -> common/__init__.py, common/rle.py.
+
+    A directory without __init__.py is a package too (Python's namespace packages), so approach
+    directories only need one when they have something to put in it.
+    """
     files, directory = [], settings.SOLUTION_DIR
     for part in name.split("."):
-        if (directory / part / "__init__.py").is_file():
+        if (directory / part).is_dir():
             directory = directory / part
-            files.append(directory / "__init__.py")
+            if (directory / "__init__.py").is_file():
+                files.append(directory / "__init__.py")
         else:
-            if (directory / f"{part}.py").is_file() and directory != settings.SOLUTION_DIR:
+            if (directory / f"{part}.py").is_file():
                 files.append(directory / f"{part}.py")
             break
     return files
 
 
-def imported_files(source: str) -> list[Path]:
+def imported_files(source: str, exclude: tuple[Path, ...] = ()) -> list[Path]:
     """Modules under solution/ that `source` needs, following imports transitively.
 
     Only absolute imports are understood (`from common.rle import encode`, `from common import rle`).
-    Top-level scripts in solution/ are entries, not libraries, and are never shipped.
+    `exclude` is for the entry itself, which becomes cells rather than a file.
     """
-    found, queue = {}, [source]
+    found, queue = dict.fromkeys(exclude), [source]
     while queue:
         code = "\n".join(line for line in queue.pop().splitlines() if not line.lstrip().startswith(("%", "!")))
         for node in ast.walk(ast.parse(code)):
@@ -147,27 +168,29 @@ def imported_files(source: str) -> list[Path]:
                     if path not in found:
                         found[path] = None
                         queue.append(path.read_text())
-    return sorted(found, key=lambda p: (p.parent, p.name != "__init__.py", p.name))
+    return sorted((p for p in found if p not in exclude), key=lambda p: (p.parent, p.name != "__init__.py", p.name))
 
 
 def module_cells(files: list[Path]) -> list[dict]:
     """`%%writefile` cells that recreate `files`, preceded by a cell creating their directories."""
     root = settings.SOLUTION_DIR
-    directories = sorted({f.parent.relative_to(root).as_posix() for f in files})
+    directories = sorted({f.parent.relative_to(root).as_posix() for f in files} - {"."})
     mkdir = "import os\n\n" + "\n".join(f'os.makedirs("{d}", exist_ok=True)' for d in directories)
-    cells = [make_cell("code", mkdir)] if files else []
+    cells = [make_cell("code", mkdir)] if directories else []
     for file in files:
         cells.append(make_cell("code", f"%%writefile {file.relative_to(root).as_posix()}\n{file.read_text()}"))
     return cells
 
 
-def build(entry: Path) -> Build:
+def build(entry: Path, user: str | None = None) -> Build:
+    """Generate build/<name>/; the notebook belongs to `user`, by default whoever the kaggle CLI is signed in as."""
     entry = entry.resolve()
+    name = entry_name(entry)
     source = entry.read_text()
     options = parse_options(source)
-    metadata = kernel_metadata(entry, options)
+    metadata = kernel_metadata(entry, options, user or kaggle_cli.current_user())
 
-    files = imported_files(source)
+    files = imported_files(source, exclude=(entry,))
     note = (
         f"> Generated by `submission_pipeline/notebook.py` from `{entry.relative_to(settings.ROOT).as_posix()}` and the "
         "modules it imports from `solution/`. Edit those, not this notebook: the `%%writefile` cells are copies."
@@ -187,9 +210,9 @@ def build(entry: Path) -> Build:
         "nbformat": 4,
         "nbformat_minor": 4,
     }
-    directory = settings.BUILD_DIR / entry.stem
+    directory = settings.BUILD_DIR / name
     shutil.rmtree(directory, ignore_errors=True)
     directory.mkdir(parents=True)
     (directory / metadata["code_file"]).write_text(json.dumps(notebook, indent=1, ensure_ascii=False) + "\n")
     (directory / "kernel-metadata.json").write_text(json.dumps(metadata, indent=2) + "\n")
-    return Build(directory, metadata["id"], options)
+    return Build(name, directory, metadata["id"], options)

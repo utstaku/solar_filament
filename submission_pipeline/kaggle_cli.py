@@ -2,6 +2,7 @@
 
 import json
 import re
+import shutil
 import subprocess
 import sys
 import time
@@ -9,8 +10,10 @@ from pathlib import Path
 
 from submission_pipeline import settings
 
-KAGGLE = str(Path(sys.executable).parent / "kaggle")
+# the kaggle CLI that `uv sync` installed next to this interpreter (bin/kaggle, or Scripts\kaggle.exe on Windows)
+KAGGLE = shutil.which("kaggle", path=str(Path(sys.executable).parent)) or "kaggle"
 STATUS = re.compile(r'has status "([^"]+)"')
+USERNAME = re.compile(r"username:\s*(\S+)")
 FINISHED = ("complete",)
 FAILED = ("error", "cancel", "fail")
 
@@ -23,6 +26,15 @@ def kaggle(*args: str, capture: bool = False) -> str:
     if result.returncode != 0 and not capture:
         raise SystemExit(f"kaggle {' '.join(args)} failed")
     return result.stdout or ""
+
+
+def current_user() -> str:
+    """The Kaggle account the CLI is signed in as. Notebooks are pushed under it, so every teammate
+    gets their own private copies without any per-person configuration in the repository."""
+    match = USERNAME.search(kaggle("config", "view", capture=True))
+    if not match or match.group(1) == "None":
+        raise SystemExit("not signed in to Kaggle: run `uv run kaggle auth login` first")
+    return match.group(1)
 
 
 def push(build_dir: Path, accelerator: str | None = None) -> None:

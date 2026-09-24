@@ -1,12 +1,13 @@
 """One command from code to leaderboard.
 
-    uv run filament run solution/classical_baseline.py                   # everything up to the format check
-    uv run filament run solution/classical_baseline.py --submit "note"   # ... and submit (asks first)
-    uv run filament submit outputs/classical_baseline/submission.csv "note"
-    uv run filament check  outputs/classical_baseline/submission.csv
+    uv run filament run solution/classical_baseline/main.py                   # everything up to the format check
+    uv run filament run solution/classical_baseline/main.py --submit "note"   # ... and submit (asks first)
+    uv run filament submit outputs/classical-baseline/submission.csv "note"
+    uv run filament check  outputs/classical-baseline/submission.csv
 
 `run` does, in order: pytest -> build the notebook -> push -> wait -> fetch log and small outputs into
-outputs/<entry>/ -> check submission.csv -> (with --submit) show the remaining quota, ask, submit.
+outputs/<name>/ -> check submission.csv -> (with --submit) show the remaining quota, ask, submit.
+<name> is the entry's path under solution/, so solution/unet/train.py -> outputs/unet-train/.
 """
 
 import argparse
@@ -63,7 +64,7 @@ def run(args: argparse.Namespace) -> int:
 
     step("wait")
     completed = kaggle_cli.wait(build.kernel_id, args.poll_sec)
-    out_dir = settings.OUTPUT_DIR / entry.stem
+    out_dir = settings.OUTPUT_DIR / build.name
     kaggle_cli.fetch_log(build.kernel_id, out_dir / "run.log")
     if not completed:
         print(f"run failed; last lines of {out_dir / 'run.log'}:")
@@ -92,9 +93,9 @@ def main() -> int:
     commands = parser.add_subparsers(dest="command", required=True)
 
     p = commands.add_parser("run", help="build, push, wait, fetch, check (and submit with --submit)")
-    p.add_argument("entry", help="entry script, e.g. solution/classical_baseline.py")
+    p.add_argument("entry", help="entry script, e.g. solution/classical_baseline/main.py")
     p.add_argument("--submit", metavar="MESSAGE", help="submit submission.csv afterwards (asks for confirmation)")
-    p.add_argument("--build-only", action="store_true", help="stop after generating build/<entry>/")
+    p.add_argument("--build-only", action="store_true", help="stop after generating build/<name>/")
     p.add_argument("--skip-tests", action="store_true", help="do not run pytest first")
     p.add_argument("--poll-sec", type=int, default=30)
     p.set_defaults(func=run)
