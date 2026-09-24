@@ -1,4 +1,4 @@
-"""Print the report for tables fetched from a run:  uv run python -m error_analysis outputs/cnn-errors"""
+"""Print the report for tables fetched from a run:  uv run python -m error_analysis outputs/error-analysis-cnn-errors"""
 
 import json
 import sys
@@ -23,4 +23,4 @@ def main(directory: Path) -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main(Path(sys.argv[1]) if len(sys.argv) > 1 else Path("outputs/cnn-errors")))
+    sys.exit(main(Path(sys.argv[1]) if len(sys.argv) > 1 else Path("outputs/error-analysis-cnn-errors")))

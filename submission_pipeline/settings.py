@@ -6,7 +6,10 @@ COMPETITION = "filament-segmentation-2026"
 KERNEL_PREFIX = "filament"  # solution/unet_tiles.py runs as the notebook <your kaggle user>/filament-unet-tiles
 
 ROOT = Path(__file__).resolve().parents[1]
-SOLUTION_DIR = ROOT / "solution"  # entry scripts and the approach packages they import
+SOLUTION_DIR = ROOT / "solution"  # one directory per approach, holding its entry scripts and modules
+# where entry scripts may live -> prefix of the notebook name (solution/unet/train.py -> unet-train,
+# error_analysis/cnn_errors.py -> error-analysis-cnn-errors)
+ENTRY_DIRS = {SOLUTION_DIR: "", ROOT / "error_analysis": "error-analysis"}
 # packages outside solution/ that notebooks may import; everything else resolves under SOLUTION_DIR
 PACKAGES = {
     "dataset": ROOT / "dataset",  # data layout and annotations

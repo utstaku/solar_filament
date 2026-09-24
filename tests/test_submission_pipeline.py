@@ -37,6 +37,7 @@ def test_entry_name_comes_from_the_path_under_solution():
     assert notebook.entry_name(solution / "unet_tiles" / "train.py") == "unet-tiles-train"
     assert notebook.entry_name(solution / "unet_tiles" / "main.py") == "unet-tiles"  # main.py = the directory itself
     assert notebook.entry_name(solution / "main.py") == "main"
+    assert notebook.entry_name(settings.ROOT / "error_analysis" / "cnn_errors.py") == "error-analysis-cnn-errors"
     with pytest.raises(SystemExit):
         notebook.entry_name(settings.ROOT / "tests" / "synthetic.py")
 

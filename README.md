@@ -22,9 +22,11 @@ preprocess/   ★ 画像の前処理（手法をまたいで使い回す）
 models/       ★ モデル定義（学習の手順は含めない）。`from models.unet import UNet`
   unet.py                  ごく普通のU-Net（事前学習なし、pure PyTorch）
 
-error_analysis/  ★ 誤差分析。PQをどこで失っているかを個体単位で分類する
+error_analysis/  ★ 誤差分析。PQをどこで失っているかを個体単位で分類する。モジュールとnotebookを一緒に置く
   instances.py  report.py  gallery.py  annotators.py
               正解・予測の1個体ごとの分類と属性 / what-if表・内訳・確信度による分離 / 最悪例のギャラリー / アノテーター同士の一致度
+  annotator_agreement.py   notebook: アノテーター同士をPQで採点（人間の一致度）→「filament-error-analysis-annotator-agreement」（CPU）
+  cnn_errors.py            notebook: 学習済みCNNの誤差分析 →「filament-error-analysis-cnn-errors」（GPU、学習notebookの出力を参照）
 
 solution/     ★ 手法ごとのディレクトリ。開発の中心
   classical_baseline/      手法1つ = ディレクトリ1つ
@@ -35,9 +37,6 @@ solution/     ★ 手法ごとのディレクトリ。開発の中心
     training.py              学習ループ（AdamW + one-cycle、CUDAではAMP）と全フレーム推論
     postprocess.py           確率マップ → 個体（しきい値 + 連結成分）
     main.py                  → notebook「filament-cnn-baseline」（GPU）
-  analysis/                予測ではなく分析を行うnotebook
-    annotators.py            アノテーター同士をPQで採点（人間の一致度）→「filament-analysis-annotators」（CPU）
-    cnn_errors.py            学習済みCNNの誤差分析 →「filament-analysis-cnn-errors」（GPU、学習notebookの出力を参照）
   <次の手法>/               学習用と推論用を分けるなら train.py / predict.py → 「filament-<手法>-train」「…-predict」
 
 submission_pipeline/   ★ ローカルでKaggleを操作する道具。Kaggleには送られない。コマンドは1つ
@@ -68,11 +67,11 @@ uv run filament run solution/classical_baseline/main.py --submit "メモ"   # �
 uv run filament submit outputs/classical-baseline/submission.csv "メモ"   # 取得済みCSVを提出
 uv run filament check  outputs/classical-baseline/submission.csv          # 形式チェックだけ
 uv run filament run solution/unet/train.py --build-only                   # notebook生成だけ
-uv run filament run solution/analysis/cnn_errors.py --figures             # 分析notebook。保存したPNGの図も取得する
+uv run filament run error_analysis/cnn_errors.py --figures                # 分析notebook。保存したPNGの図も取得する
 ```
 
 `<name>` は実行スクリプトの `solution/` からの相対パス（`unet/train.py` → `unet-train`）。
-`main.py` だけはディレクトリ名そのもの（`classical_baseline/main.py` → `classical-baseline`）。
+`main.py` だけはディレクトリ名そのもの（`classical_baseline/main.py` → `classical-baseline`）。`error_analysis/` のスクリプトは `error-analysis-<名前>`。
 notebook名はこれに `filament-` を付けたもの。
 
 ## 開発の流れ
@@ -113,7 +112,7 @@ gitに入れない。Kaggle上で試行錯誤した変更は `solution/` に書�
 
 ## 誤差分析
 
-`solution/analysis/cnn_errors.py` を実行すると、検証画像の正解1個体・予測1個体ごとの表
+`error_analysis/cnn_errors.py` を実行すると、検証画像の正解1個体・予測1個体ごとの表
 （`errors_gt.csv` / `errors_pred.csv`）が返る。各行の `status` は次のどれか:
 
 | 正解側 | 予測側 | 意味 |
@@ -126,7 +125,7 @@ gitに入れない。Kaggle上で試行錯誤した変更は `solution/` に書�
 
 属性（面積・暗さ・周縁からの距離・細長さ・観測所・アノテーターの一致数・予測の確信度）で切った内訳、
 誤りの種類ごとに直したときのPQ（what-if表）、確信度でhallucinationを分離できるか（AUC）、最悪例のギャラリーも出る。
-取得した表からローカルで再集計するには `uv run python -m error_analysis outputs/analysis-cnn-errors`。
+取得した表からローカルで再集計するには `uv run python -m error_analysis outputs/error-analysis-cnn-errors`。
 
 ## セットアップ（チームメンバー共通）
 

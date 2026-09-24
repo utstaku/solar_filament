@@ -8,4 +8,8 @@ and measures how far apart the human annotators are from each other (`annotators
 ceiling any model is scored against.
 
 The tables are plain CSVs, so they come back from Kaggle and can be sliced locally without the images.
+
+The notebooks live here too, next to the modules they use, like an approach directory under solution/:
+`annotator_agreement.py` and `cnn_errors.py` run with `uv run filament run error_analysis/<name>.py --figures`
+and become `filament-error-analysis-<name>`; `python -m error_analysis <outputs dir>` reprints a report locally.
 """

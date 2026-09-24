@@ -1,8 +1,9 @@
-"""Turn an entry script under solution/ plus the modules it imports into one self-contained Kaggle notebook.
+"""Turn an entry script plus the modules it imports into one self-contained Kaggle notebook.
 
 solution/ holds one directory per approach, e.g. solution/unet/, whose scripts are entries:
 solution/unet/train.py becomes the notebook `filament-unet-train`, solution/unet/predict.py
-`filament-unet-predict`; a directory's main.py is named after the directory alone.
+`filament-unet-predict`; a directory's main.py is named after the directory alone. The scripts of
+error_analysis/ are entries too: error_analysis/cnn_errors.py becomes `filament-error-analysis-cnn-errors`.
 The shared packages at the repository root (dataset/, scoring/, preprocess/, models/) are shipped the same way.
 
 The generated notebook has three parts:
@@ -56,14 +57,18 @@ class Build:
 
 
 def entry_name(entry: Path) -> str:
-    """`solution/unet/train.py` -> `unet-train`; `solution/unet/main.py` -> `unet`."""
-    try:
-        parts = list(entry.resolve().relative_to(settings.SOLUTION_DIR).with_suffix("").parts)
-    except ValueError:
-        raise SystemExit(f"{entry} is not under {settings.SOLUTION_DIR}") from None
+    """`solution/unet/train.py` -> `unet-train`; `solution/unet/main.py` -> `unet`;
+    `error_analysis/cnn_errors.py` -> `error-analysis-cnn-errors`."""
+    entry = entry.resolve()
+    for directory, prefix in settings.ENTRY_DIRS.items():
+        if entry.is_relative_to(directory):
+            parts = list(entry.relative_to(directory).with_suffix("").parts)
+            break
+    else:
+        raise SystemExit(f"{entry} is not under any of {[str(d) for d in settings.ENTRY_DIRS]}")
     if len(parts) > 1 and parts[-1] == "main":
         parts.pop()
-    return "-".join(parts).replace("_", "-")
+    return "-".join(([prefix] if prefix else []) + parts).replace("_", "-")
 
 
 def parse_options(source: str) -> KernelOptions:
