@@ -7,7 +7,7 @@ import sys
 import time
 from pathlib import Path
 
-from pipeline import settings
+from submission_pipeline import settings
 
 KAGGLE = str(Path(sys.executable).parent / "kaggle")
 STATUS = re.compile(r'has status "([^"]+)"')

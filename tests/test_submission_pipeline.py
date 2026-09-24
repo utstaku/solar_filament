@@ -9,8 +9,8 @@ import pytest
 from synthetic import SIZE
 
 from common import rle
-from pipeline import kaggle_cli, notebook, settings
-from pipeline.check import check
+from submission_pipeline import kaggle_cli, notebook, settings
+from submission_pipeline.check import check
 
 ENTRY = settings.ROOT / "solution" / "classical_baseline.py"
 

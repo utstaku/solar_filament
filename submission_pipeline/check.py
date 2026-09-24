@@ -9,7 +9,7 @@ from pycocotools import mask as mask_util
 
 from common import IMAGE_SIZE, rle
 from common.submission import COLUMNS
-from pipeline import settings
+from submission_pipeline import settings
 
 ID_PATTERN = re.compile(r"^\d{14}[A-Z][a-z]_\w+$")  # e.g. 20150125172714Mh_1
 

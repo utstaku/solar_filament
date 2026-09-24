@@ -15,7 +15,7 @@ solution/     ★ 開発はここだけ。中身は純粋なPython
   <新しい実験>.py           例: unet_tiles.py → notebook「filament-unet-tiles」になる
   <手法名>/                 手法専用のコードが1ファイルに収まらなくなったら作る（例: unet/model.py, unet/train.py）
 
-pipeline/     ★ 提出パイプライン一式。普段は触らない。コマンドは1つ
+submission_pipeline/   ★ 提出パイプライン一式。普段は触らない。コマンドは1つ
   cli.py  notebook.py  kaggle_cli.py  check.py  settings.py
 
 tests/        合成の全球画像でのテスト（実データ不要）
@@ -83,7 +83,7 @@ uv run kaggle --version  # 認証は ~/.kaggle/credentials.json（`kaggle auth l
 uv run ruff check . && uv run ruff format .
 ```
 
-コンペ名・Kaggleユーザー名などは [pipeline/settings.py](pipeline/settings.py)。
+コンペ名・Kaggleユーザー名などは [submission_pipeline/settings.py](submission_pipeline/settings.py)。
 
 ## 最終提出の要件（11/15まで）
 

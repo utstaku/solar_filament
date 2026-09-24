@@ -14,8 +14,8 @@ import subprocess
 import sys
 from pathlib import Path
 
-from pipeline import kaggle_cli, notebook, settings
-from pipeline.check import check
+from submission_pipeline import kaggle_cli, notebook, settings
+from submission_pipeline.check import check
 
 
 def step(title: str) -> None:
