@@ -9,6 +9,7 @@
 # of the worst cases.
 #
 # Outputs: `errors_gt.csv`, `errors_pred.csv`, `error_report.json`, `breakdowns.txt`, `gallery_*.png`.
+# The same analysis runs at the end of every training notebook; this one repeats it on saved weights.
 
 # %%
 import json
@@ -17,16 +18,13 @@ import time
 import pandas as pd
 import torch
 
+import error_analysis.run
 from cnn_baseline.data import channels, split_files
 from cnn_baseline.postprocess import instances
 from cnn_baseline.training import pick_device, predict
 from dataset.annotations import load_annotations
 from dataset.paths import find_data_root, find_input, output_dir
-from error_analysis.gallery import save_galleries, worst_cases
-from error_analysis.instances import FrameContext, analyze_frame, tables
-from error_analysis.report import breakdowns, summary, what_if
 from models.unet import UNet
-from preprocess.disk import disk_geometry, flatten
 from preprocess.images import read_gray
 from scoring.metric import PanopticQuality, instance_crops
 
@@ -80,55 +78,11 @@ log("best:", best)
 print(pd.DataFrame(sweep).pivot(index="threshold", columns="min_area", values="pq").to_string())
 
 # %% [markdown]
-# ## Per-instance tables
-
-# %%
-gt_rows, pred_rows = [], []
-for f in val_files:
-    image = images[f]
-    cx, cy, radius = disk_geometry(image)
-    ctx = FrameContext(name=f, flat=flatten(image), centre=(cx, cy), radius=radius, prob=probs[f])
-    labels, areas, boxes = instances(probs[f], **params)
-    entries = annotations.file_to_entries.get(f, [])
-    per_annotator = [(entry, annotations.entry_to_rles.get(entry, [])) for entry in entries]
-    g, p = analyze_frame(ctx, per_annotator, labels, areas, boxes)
-    gt_rows += g
-    pred_rows += p
-gt, pred = tables(gt_rows, pred_rows)
-gt.to_csv(output_dir() / "errors_gt.csv", index=False)
-pred.to_csv(output_dir() / "errors_pred.csv", index=False)
-log(f"{len(gt)} ground-truth rows, {len(pred)} prediction rows")
-
-# %% [markdown]
-# ## Report
-
-# %%
-report = summary(gt, pred)
-report["post_processing"] = params
-report["sweep"] = sweep
-(output_dir() / "error_report.json").write_text(json.dumps(report, indent=2))
-print(json.dumps({k: v for k, v in report.items() if k not in ("what_if", "sweep")}, indent=1))
-print("\n== what if ==")
-print(what_if(gt, pred).to_string(index=False))
-
-pd.set_option("display.width", 160)
-lines = []
-for name, table in breakdowns(gt, pred).items():
-    lines += [f"== {name} ==", table.to_string(), ""]
-(output_dir() / "breakdowns.txt").write_text("\n".join(lines))
-print("\n".join(lines))
-
-# %% [markdown]
-# ## The worst cases
+# ## Per-instance tables, report, breakdowns and the worst cases
 #
 # Ground truth of the annotator in question in green, predictions in red.
 
-
 # %%
-def context(frame, annotator):
-    labels, _, _ = instances(probs[frame], **params)
-    return images[frame], instance_crops(annotations.entry_to_rles.get(annotator, [])), labels
-
-
-paths = save_galleries(worst_cases(gt, pred, k=8), context, output_dir())
-log("galleries:", [p.name for p in paths])
+report = error_analysis.run.run(annotations, train_dir, val_files, probs, instances, params, output_dir(), log=log)
+report["sweep"] = sweep
+(output_dir() / "error_report.json").write_text(json.dumps(report, indent=2))

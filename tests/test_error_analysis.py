@@ -10,6 +10,7 @@ from dataset.annotations import load_annotations
 from error_analysis import gallery, report
 from error_analysis.annotators import human_ceiling, label_map
 from error_analysis.instances import FrameContext, agreement, analyze_frame, classify, overlaps, tables
+from error_analysis.run import run
 from preprocess.disk import REL_SCALE, disk_geometry, flatten
 from scoring.metric import PanopticQuality, instance_crops
 
@@ -175,3 +176,54 @@ def test_agreement_and_disk_geometry():
     cx, cy, radius = disk_geometry(image)
     assert abs(cx - 1030) < 3 and abs(cy - 1015) < 3 and abs(radius - 905) < 30
     assert flatten(image).shape == image.shape
+
+
+def test_run_writes_everything(tmp_path):
+    """The one call a training notebook makes: tables, report, breakdowns and galleries on disk."""
+    import cv2
+
+    image, masks = make_frame(seed=5, n_filaments=5)
+    cv2.imwrite(str(tmp_path / "20140609195854Bh.jpeg"), image, [cv2.IMWRITE_JPEG_QUALITY, 95])
+
+    def polygon(mask):
+        contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        return [c.reshape(-1).astype(float).tolist() for c in contours if len(c) >= 3]
+
+    coco = {
+        "images": [{"id": "050101-20140609195854Bh", "file_name": "20140609195854Bh.jpeg"}],
+        "annotations": [{"image_id": "050101-20140609195854Bh", "segmentation": polygon(m)} for m in masks],
+    }
+    (tmp_path / "ann.json").write_text(json.dumps(coco))
+    annotations = load_annotations(tmp_path / "ann.json")
+
+    prob = np.zeros((SIZE, SIZE), np.uint8)  # a "model" that found the first three filaments exactly
+    for m in masks[:3]:
+        prob[m > 0] = 255
+
+    def instances(prob, threshold, min_area):
+        n, labels, stats, _ = cv2.connectedComponentsWithStats(
+            (prob >= threshold * 255).astype(np.uint8), connectivity=8
+        )
+        keep = [k for k in range(1, n) if stats[k, cv2.CC_STAT_AREA] >= min_area]
+        relabel = np.zeros(n, np.int32)
+        relabel[keep] = np.arange(1, len(keep) + 1)
+        return relabel[labels], stats[keep, cv2.CC_STAT_AREA], stats[keep, :4]
+
+    out = tmp_path / "out"
+    out.mkdir()
+    report = run(
+        annotations,
+        tmp_path,
+        ["20140609195854Bh.jpeg"],
+        {"20140609195854Bh.jpeg": prob},
+        instances,
+        {"threshold": 0.5, "min_area": 50},
+        out,
+        log=lambda *a: None,
+    )
+    assert report["terms"]["tp"] == 3 and report["terms"]["fn"] == 2 and report["terms"]["fp"] == 0
+    assert report["post_processing"] == {"threshold": 0.5, "min_area": 50}
+    names = {p.name for p in out.iterdir()}
+    assert {"errors_gt.csv", "errors_pred.csv", "error_report.json", "breakdowns.txt", "gallery_missed.png"} <= names
+    assert "gallery_hallucination.png" not in names  # nothing to show
+    assert json.loads((out / "error_report.json").read_text())["terms"]["pq"] == report["terms"]["pq"]

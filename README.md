@@ -23,8 +23,8 @@ models/       ★ モデル定義（学習の手順は含めない）。`from mo
   unet.py                  ごく普通のU-Net（事前学習なし、pure PyTorch）
 
 error_analysis/  ★ 誤差分析。PQをどこで失っているかを個体単位で分類する。モジュールとnotebookを一緒に置く
-  instances.py  report.py  gallery.py  annotators.py
-              正解・予測の1個体ごとの分類と属性 / what-if表・内訳・確信度による分離 / 最悪例のギャラリー / アノテーター同士の一致度
+  instances.py  report.py  gallery.py  annotators.py  run.py
+              正解・予測の1個体ごとの分類と属性 / what-if表・内訳・確信度による分離 / 最悪例のギャラリー / アノテーター同士の一致度 / 全部を1回で
   annotator_agreement.py   notebook: アノテーター同士をPQで採点（人間の一致度）→「filament-error-analysis-annotator-agreement」（CPU）
   cnn_errors.py            notebook: 学習済みCNNの誤差分析 →「filament-error-analysis-cnn-errors」（GPU、学習notebookの出力を参照）
 
@@ -112,8 +112,10 @@ gitに入れない。Kaggle上で試行錯誤した変更は `solution/` に書�
 
 ## 誤差分析
 
-`error_analysis/cnn_errors.py` を実行すると、検証画像の正解1個体・予測1個体ごとの表
-（`errors_gt.csv` / `errors_pred.csv`）が返る。各行の `status` は次のどれか:
+学習notebook（例: `solution/cnn_baseline/main.py`）は最後に `error_analysis.run.run(...)` を呼ぶので、
+`filament run` 1回で `submission.csv` と一緒に誤差分析も返る（図は `--figures` 指定時）。
+学習し直さずに分析だけやり直すときは `error_analysis/cnn_errors.py`（保存済みの重みを参照）を実行する。
+どちらも、検証画像の正解1個体・予測1個体ごとの表（`errors_gt.csv` / `errors_pred.csv`）を出す。各行の `status` は次のどれか:
 
 | 正解側 | 予測側 | 意味 |
 | --- | --- | --- |
@@ -125,7 +127,7 @@ gitに入れない。Kaggle上で試行錯誤した変更は `solution/` に書�
 
 属性（面積・暗さ・周縁からの距離・細長さ・観測所・アノテーターの一致数・予測の確信度）で切った内訳、
 誤りの種類ごとに直したときのPQ（what-if表）、確信度でhallucinationを分離できるか（AUC）、最悪例のギャラリーも出る。
-取得した表からローカルで再集計するには `uv run python -m error_analysis outputs/error-analysis-cnn-errors`。
+取得した表からローカルで再集計するには `uv run python -m error_analysis outputs/<name>`。
 
 ## セットアップ（チームメンバー共通）
 

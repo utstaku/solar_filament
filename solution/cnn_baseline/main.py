@@ -8,7 +8,8 @@
 #    connected components, and pick the threshold / minimum area that maximise Panoptic Quality.
 # 3. Predict the test frames with those settings → `submission.csv`.
 #
-# Outputs: `submission.csv`, `cnn_report.json`, `unet.pt`.
+# Outputs: `submission.csv`, `cnn_report.json`, `unet.pt`, and the error analysis (`errors_*.csv`,
+# `error_report.json`, `breakdowns.txt`, `gallery_*.png`).
 
 # %%
 import json
@@ -21,6 +22,7 @@ import numpy as np
 import torch
 from torch.utils.data import DataLoader
 
+import error_analysis.run
 from cnn_baseline.data import FilamentFrames, channels, collate_tiles, split_files, worker_init
 from cnn_baseline.postprocess import instances
 from cnn_baseline.training import fit, pick_device, predict
@@ -149,7 +151,6 @@ for ax, f in zip(axes.ravel(), val_files):
     ax.axis("off")
 plt.tight_layout()
 plt.show()
-del val_probs
 
 # %% [markdown]
 # ## Test predictions
@@ -176,3 +177,14 @@ report = {
 }
 (output_dir() / "cnn_report.json").write_text(json.dumps(report, indent=2))
 log(f"wrote submission.csv with {len(frame)} rows")
+
+# %% [markdown]
+# ## Error analysis
+#
+# Where this model loses Panoptic Quality on the validation frames: every filament and prediction
+# classified (matched / near miss / fragmented / merged / missed / hallucination), what-if bounds,
+# breakdowns by size, contrast, position, site and annotator agreement, and galleries of the worst cases.
+# Tables come back with the run; the galleries do with `filament run --figures`.
+
+# %%
+error_analysis.run.run(annotations, train_dir, val_files, val_probs, instances, params, output_dir(), log=log)
