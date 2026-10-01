@@ -180,5 +180,24 @@ def analyze_frame(
     return gt_rows, pred_rows
 
 
+FRAME_COLUMNS = ["frame", "site", "year", "n_annotators", "annotator"]
+FEATURE_COLUMNS = ["area", "cx", "cy", "elongation", "darkness", "limb", "mean_prob", "max_prob"]
+GT_COLUMNS = [
+    *FRAME_COLUMNS,
+    "gt_id",
+    *FEATURE_COLUMNS,
+    "agreement",
+    "status",
+    "n_overlap",
+    "best_iou",
+    "best_pred",
+    "coverage",
+]
+PRED_COLUMNS = [*FRAME_COLUMNS, "pred_id", *FEATURE_COLUMNS, "status", "n_overlap", "best_iou", "best_gt", "precision"]
+
+
 def tables(gt_rows: list[dict], pred_rows: list[dict]) -> tuple[pd.DataFrame, pd.DataFrame]:
-    return pd.DataFrame(gt_rows), pd.DataFrame(pred_rows)
+    """DataFrames with a fixed column set, so an empty side (no predictions at all) still has a `status`."""
+    gt = pd.DataFrame(gt_rows) if gt_rows else pd.DataFrame(columns=GT_COLUMNS)
+    pred = pd.DataFrame(pred_rows) if pred_rows else pd.DataFrame(columns=PRED_COLUMNS)
+    return gt, pred
