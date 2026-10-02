@@ -14,6 +14,8 @@ from submission_pipeline import settings
 KAGGLE = shutil.which("kaggle", path=str(Path(sys.executable).parent)) or "kaggle"
 STATUS = re.compile(r'has status "([^"]+)"')
 USERNAME = re.compile(r"username:\s*(\S+)")
+# not just "error": slugs like filament-error-analysis-* appear in the URL of every push
+PUSH_ERROR = re.compile(r"push error", re.IGNORECASE)
 FINISHED = ("complete",)
 FAILED = ("error", "cancel", "fail")
 
@@ -38,8 +40,12 @@ def current_user() -> str:
 
 
 def push(build_dir: Path, accelerator: str | None = None) -> None:
+    """Push the notebook. A rejected push (rules not accepted, bad source, ...) still exits 0, so read the output."""
     extra = ["--accelerator", accelerator] if accelerator else []
-    kaggle("kernels", "push", "-p", str(build_dir), *extra)
+    output = kaggle("kernels", "push", "-p", str(build_dir), *extra, capture=True)
+    print(output, end="", flush=True)
+    if PUSH_ERROR.search(output):
+        raise SystemExit("the push was rejected; nothing is running on Kaggle")
 
 
 def parse_status(output: str) -> str | None:
