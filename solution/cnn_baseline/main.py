@@ -4,8 +4,8 @@
 #
 # 1. Train a small U-Net on 512 px tiles (input: raw frame + limb-darkening-corrected frame;
 #    target: fraction of annotators marking each pixel).
-# 2. Predict whole frames of a held-out split, turn probabilities into instances with a threshold and
-#    connected components, and pick the threshold / minimum area that maximise Panoptic Quality.
+# 2. Predict whole frames of a held-out split, drop everything off the solar disk, turn probabilities into
+#    instances with a threshold and connected components, and pick the threshold / minimum area that maximise Panoptic Quality.
 # 3. Predict the test frames with those settings → `submission.csv`.
 #
 # Outputs: `submission.csv`, `cnn_report.json`, `unet.pt`, and the error analysis (`errors_*.csv`,
@@ -24,7 +24,7 @@ from torch.utils.data import DataLoader
 
 import error_analysis.run
 from cnn_baseline.data import FilamentFrames, channels, collate_tiles, split_files, worker_init
-from cnn_baseline.postprocess import instances
+from cnn_baseline.postprocess import instances, on_disk
 from cnn_baseline.training import fit, pick_device, predict
 from dataset.annotations import load_annotations
 from dataset.paths import find_data_root, output_dir
@@ -113,7 +113,10 @@ def frames_of(directory, names):
         yield torch.from_numpy(channels(read_gray(directory / name)))
 
 
-val_probs = dict(zip(val_files, predict(model, frames_of(train_dir, val_files), device)))
+val_probs = {
+    f: on_disk(prob, read_gray(train_dir / f))
+    for f, prob in zip(val_files, predict(model, frames_of(train_dir, val_files), device))
+}
 val_truth = {f: [instance_crops(rles) for rles in annotations.rles_for_file(f)] for f in val_files}
 log(f"predicted {len(val_probs)} validation frames")
 
@@ -159,7 +162,7 @@ plt.show()
 test_files = sorted(p.name for p in test_dir.iterdir())
 rows = []
 for f, prob in zip(test_files, predict(model, frames_of(test_dir, test_files), device)):
-    labels, _, boxes = instances(prob, **params)
+    labels, _, boxes = instances(on_disk(prob, read_gray(test_dir / f)), **params)
     rows += submission.rows_from_label_map(f.rsplit(".", 1)[0], labels, boxes)
 frame = submission.write(rows, output_dir() / "submission.csv")
 
