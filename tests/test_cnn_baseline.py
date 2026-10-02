@@ -118,3 +118,15 @@ def test_instances_edge_cases():
     prob[40:43, 40:43] = 255  # 9 px, dropped by min_area
     labels, areas, boxes = instances(prob, 0.5, 10)
     assert len(areas) == 1 and areas[0] == 300 and tuple(boxes[0]) == (10, 10, 30, 10)
+
+
+def test_pick_device_refuses_the_cpu_on_kaggle(monkeypatch):
+    """A GPU notebook that Kaggle put on a CPU machine stops at once instead of training for days."""
+    from cnn_baseline.training import pick_device
+
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
+    monkeypatch.delenv("KAGGLE_KERNEL_RUN_TYPE", raising=False)
+    assert pick_device().type in ("mps", "cpu")  # locally: fall back as before
+    monkeypatch.setenv("KAGGLE_KERNEL_RUN_TYPE", "Batch")
+    with pytest.raises(RuntimeError, match="no GPU"):
+        pick_device()

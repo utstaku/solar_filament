@@ -1,5 +1,6 @@
 """Training loop and full-frame inference for a binary segmentation network."""
 
+import os
 import time
 from collections.abc import Iterable, Iterator
 
@@ -11,8 +12,19 @@ from torch.utils.data import DataLoader
 
 
 def pick_device() -> torch.device:
+    """CUDA if there is one; locally fall back to Apple's MPS or the CPU.
+
+    On Kaggle a missing GPU is an error, not a fallback: an account without phone verification (or
+    without GPU quota) gets a CPU machine for a GPU notebook without any warning, and this U-Net then
+    needs ~3.5 h per epoch instead of minutes.
+    """
     if torch.cuda.is_available():
         return torch.device("cuda")
+    if os.environ.get("KAGGLE_KERNEL_RUN_TYPE"):
+        raise RuntimeError(
+            "Kaggle gave this notebook no GPU. Check that the account is phone-verified and has GPU quota "
+            "left (Settings on kaggle.com); stopping instead of training on the CPU."
+        )
     if torch.backends.mps.is_available():
         return torch.device("mps")
     return torch.device("cpu")
