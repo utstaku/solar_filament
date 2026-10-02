@@ -20,7 +20,7 @@ import torch
 
 import error_analysis.run
 from cnn_baseline.data import channels, split_files
-from cnn_baseline.postprocess import instances
+from cnn_baseline.postprocess import instances, on_disk
 from cnn_baseline.training import pick_device, predict
 from dataset.annotations import load_annotations
 from dataset.paths import find_data_root, find_input, output_dir
@@ -55,7 +55,10 @@ model.load_state_dict(torch.load(weights, map_location="cpu"))
 log(f"loaded {weights}; {len(val_files)} validation frames; device {device}")
 
 images = {f: read_gray(train_dir / f) for f in val_files}
-probs = dict(zip(val_files, predict(model, (torch.from_numpy(channels(images[f])) for f in val_files), device)))
+probs = {
+    f: on_disk(prob, images[f])
+    for f, prob in zip(val_files, predict(model, (torch.from_numpy(channels(images[f])) for f in val_files), device))
+}
 truth = {f: [instance_crops(rles) for rles in annotations.rles_for_file(f)] for f in val_files}
 log("predicted")
 

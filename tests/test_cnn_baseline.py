@@ -9,10 +9,11 @@ from synthetic import SIZE, make_frame
 from torch.utils.data import DataLoader
 
 from cnn_baseline.data import FilamentFrames, channels, collate_tiles, soft_target
-from cnn_baseline.postprocess import instances
+from cnn_baseline.postprocess import instances, on_disk
 from cnn_baseline.training import bce_dice_loss, fit, predict
 from dataset.annotations import load_annotations
 from models.unet import UNet
+from preprocess.images import read_gray
 from scoring.metric import PanopticQuality, instance_crops
 
 
@@ -101,12 +102,27 @@ def test_overfitting_one_frame_recovers_its_filaments(dataset_dir):
     frame, _ = FilamentFrames(["20110130110334Ch.jpeg"], root, annotations, train=False)[0]
     prob = next(predict(model, [frame], device=torch.device("cpu")))
     assert prob.shape == (SIZE, SIZE) and prob.dtype == np.uint8
+    # the sky beyond the limb is barely in the training tiles; left in, it yields ~0.5 blobs (3 here)
+    prob = on_disk(prob, read_gray(root / "20110130110334Ch.jpeg"))
     labels, areas, boxes = instances(prob, threshold=0.5, min_area=100)
     assert len(areas) == len(boxes) and labels.max() == len(areas)
     pq = PanopticQuality()
     gt = instance_crops([mask_util.encode(np.asfortranarray(m)) for m in masks["20110130110334Ch.jpeg"]])
     pq.update(gt, labels, areas)
     assert pq.tp >= 5 and pq.fp <= 1, pq.summary()  # 6 filaments in the frame
+
+
+def test_on_disk_drops_only_what_is_off_the_disk():
+    image, _ = make_frame(seed=0, n_filaments=0)  # disk centred at (1030, 1015), radius 905
+    prob = np.zeros((SIZE, SIZE), np.uint8)
+    prob[1000:1020, 1000:1100] = 200  # near the centre
+    prob[1000:1020, 1900:1925] = 200  # just inside the limb (x = 1900..1924 < 1030 + 905)
+    prob[20:60, 20:60] = 128  # a corner of the sky
+    kept = on_disk(prob, image)
+    assert kept.dtype == np.uint8 and kept[20:60, 20:60].max() == 0
+    assert (kept[1000:1020, 1000:1100] == 200).all() and (kept[1000:1020, 1900:1925] == 200).all()
+    _, areas, _ = instances(kept, threshold=0.5, min_area=10)
+    assert sorted(areas.tolist()) == [500, 2000]
 
 
 def test_instances_edge_cases():
