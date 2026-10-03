@@ -3,7 +3,19 @@
 import cv2
 import numpy as np
 
+from preprocess.disk import disk_mask
+
 MAX_INSTANCES = 40  # ground truth never exceeds 26 filaments per frame
+DISK_SLACK = 1.02  # keep a sliver past the estimated limb so filaments touching it are not clipped
+
+
+def on_disk(prob: np.ndarray, image: np.ndarray) -> np.ndarray:
+    """`prob` with everything off the solar disk set to 0.
+
+    Training tiles are centred on the disk, so the network barely sees the sky beyond the limb and its
+    output there hovers around 0.5 -- enough to pass a 0.5 threshold as large spurious blobs.
+    """
+    return prob * disk_mask(image, shrink=DISK_SLACK)
 
 
 def instances(prob: np.ndarray, threshold: float, min_area: int, low: float | None = None):

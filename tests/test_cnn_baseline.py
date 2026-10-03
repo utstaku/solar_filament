@@ -18,10 +18,11 @@ from cnn_baseline.filtering import (
     out_of_fold_scores,
     trainable,
 )
-from cnn_baseline.postprocess import instances, select
+from cnn_baseline.postprocess import instances, on_disk, select
 from cnn_baseline.training import bce_dice_loss, fit, predict
 from dataset.annotations import load_annotations
 from models.unet import UNet
+from preprocess.images import read_gray
 from scoring.metric import PanopticQuality, instance_crops
 
 
@@ -110,12 +111,27 @@ def test_overfitting_one_frame_recovers_its_filaments(dataset_dir):
     frame, _ = FilamentFrames(["20110130110334Ch.jpeg"], root, annotations, train=False)[0]
     prob = next(predict(model, [frame], device=torch.device("cpu")))
     assert prob.shape == (SIZE, SIZE) and prob.dtype == np.uint8
+    # the sky beyond the limb is barely in the training tiles; left in, it yields ~0.5 blobs (3 here)
+    prob = on_disk(prob, read_gray(root / "20110130110334Ch.jpeg"))
     labels, areas, boxes = instances(prob, threshold=0.5, min_area=100)
     assert len(areas) == len(boxes) and labels.max() == len(areas)
     pq = PanopticQuality()
     gt = instance_crops([mask_util.encode(np.asfortranarray(m)) for m in masks["20110130110334Ch.jpeg"]])
     pq.update(gt, labels, areas)
     assert pq.tp >= 5 and pq.fp <= 1, pq.summary()  # 6 filaments in the frame
+
+
+def test_on_disk_drops_only_what_is_off_the_disk():
+    image, _ = make_frame(seed=0, n_filaments=0)  # disk centred at (1030, 1015), radius 905
+    prob = np.zeros((SIZE, SIZE), np.uint8)
+    prob[1000:1020, 1000:1100] = 200  # near the centre
+    prob[1000:1020, 1900:1925] = 200  # just inside the limb (x = 1900..1924 < 1030 + 905)
+    prob[20:60, 20:60] = 128  # a corner of the sky
+    kept = on_disk(prob, image)
+    assert kept.dtype == np.uint8 and kept[20:60, 20:60].max() == 0
+    assert (kept[1000:1020, 1000:1100] == 200).all() and (kept[1000:1020, 1900:1925] == 200).all()
+    _, areas, _ = instances(kept, threshold=0.5, min_area=10)
+    assert sorted(areas.tolist()) == [500, 2000]
 
 
 def test_instances_edge_cases():
@@ -182,3 +198,15 @@ def test_component_filter_learns_to_drop_round_faint_blobs(dataset_dir):
     model = ComponentFilter(cutoff=0.5).fit(table, target)
     assert (model.keep(table) == target).mean() > 0.9
     assert not trainable(np.ones(10, bool)) and not trainable(np.zeros(100, bool))
+
+
+def test_pick_device_refuses_the_cpu_on_kaggle(monkeypatch):
+    """A GPU notebook that Kaggle put on a CPU machine stops at once instead of training for days."""
+    from cnn_baseline.training import pick_device
+
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
+    monkeypatch.delenv("KAGGLE_KERNEL_RUN_TYPE", raising=False)
+    assert pick_device().type in ("mps", "cpu")  # locally: fall back as before
+    monkeypatch.setenv("KAGGLE_KERNEL_RUN_TYPE", "Batch")
+    with pytest.raises(RuntimeError, match="no GPU"):
+        pick_device()

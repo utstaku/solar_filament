@@ -180,6 +180,21 @@ def test_current_user_is_read_from_the_kaggle_config(monkeypatch):
         kaggle_cli.current_user()
 
 
+def test_rejected_push_stops_the_run(monkeypatch, tmp_path):
+    """`kaggle kernels push` exits 0 even when Kaggle refuses the notebook."""
+    url = "https://www.kaggle.com/code/teammate/filament-error-analysis-cnn-errors"
+    replies = iter(
+        [
+            f"Kernel version 3 successfully pushed.  Please check progress at {url}\n",
+            f"Kernel push error: You must accept this competition's rules\n{url}\n",
+        ]
+    )
+    monkeypatch.setattr(kaggle_cli, "kaggle", lambda *args, **kwargs: next(replies))
+    kaggle_cli.push(tmp_path)
+    with pytest.raises(SystemExit):
+        kaggle_cli.push(tmp_path)
+
+
 def test_wait_survives_network_errors(monkeypatch):
     """A traceback mentioning 'Error' is a failed poll, not a failed notebook."""
     traceback = "requests.exceptions.ConnectionError: HTTPSConnectionPool(host='api.kaggle.com'): Max retries exceeded"
