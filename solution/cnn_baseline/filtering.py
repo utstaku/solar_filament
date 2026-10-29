@@ -57,32 +57,34 @@ def matched_by_any_annotator(
 
 
 class ComponentFilter:
-    """Gradient boosting on FEATURES; `cutoff` is the probability below which a component is dropped."""
+    """Gradient boosting on `features`; `cutoff` is the probability below which a component is dropped."""
 
-    def __init__(self, cutoff: float = 0.5):
-        self.cutoff = cutoff
+    def __init__(self, cutoff: float = 0.5, features: list[str] = FEATURES):
+        self.cutoff, self.features = cutoff, list(features)
         self.model = GradientBoostingClassifier(n_estimators=150, max_depth=2, learning_rate=0.05, random_state=0)
 
     def fit(self, table: pd.DataFrame, target: np.ndarray) -> "ComponentFilter":
-        self.model.fit(table[FEATURES].to_numpy(), np.asarray(target, dtype=int))
+        self.model.fit(table[self.features].to_numpy(), np.asarray(target, dtype=int))
         return self
 
     def scores(self, table: pd.DataFrame) -> np.ndarray:
         if not len(table):
             return np.zeros(0)
-        return self.model.predict_proba(table[FEATURES].to_numpy())[:, 1]
+        return self.model.predict_proba(table[self.features].to_numpy())[:, 1]
 
     def keep(self, table: pd.DataFrame) -> np.ndarray:
         return self.scores(table) >= self.cutoff
 
 
-def out_of_fold_scores(table: pd.DataFrame, target: np.ndarray, n_splits: int = 5) -> np.ndarray:
+def out_of_fold_scores(
+    table: pd.DataFrame, target: np.ndarray, n_splits: int = 5, features: list[str] = FEATURES
+) -> np.ndarray:
     """Filter probabilities for every component, each predicted by a model that never saw its frame."""
     scores = np.zeros(len(table))
     groups = table["frame"].to_numpy()
     splits = min(n_splits, len(np.unique(groups)))
     for train_idx, test_idx in GroupKFold(n_splits=splits).split(table, target, groups):
-        model = ComponentFilter().fit(table.iloc[train_idx], target[train_idx])
+        model = ComponentFilter(features=features).fit(table.iloc[train_idx], target[train_idx])
         scores[test_idx] = model.scores(table.iloc[test_idx])
     return scores
 

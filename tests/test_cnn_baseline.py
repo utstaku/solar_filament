@@ -197,6 +197,9 @@ def test_component_filter_learns_to_drop_round_faint_blobs(dataset_dir):
     assert oof[target].mean() > 0.7 > oof[~target].mean()
     model = ComponentFilter(cutoff=0.5).fit(table, target)
     assert (model.keep(table) == target).mean() > 0.9
+    subset = ["frame", "log_area", "elongation"]  # a filter on fewer features needs only those columns
+    assert ComponentFilter(features=subset[1:]).fit(table[subset], target).scores(table[subset]).shape == oof.shape
+    assert out_of_fold_scores(table[subset], target, n_splits=3, features=subset[1:]).shape == oof.shape
     assert not trainable(np.ones(10, bool)) and not trainable(np.zeros(100, bool))
 
 
