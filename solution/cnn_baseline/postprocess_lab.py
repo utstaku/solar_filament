@@ -83,46 +83,48 @@ log(f"{len(val_files)} validation and {len(test_files)} test frames loaded; A0 =
 # ## Machinery
 #
 # Rows of a component table are concatenated in `val_files` order, as in `predict.py`, so the
-# out-of-fold folds (GroupKFold by frame) are the same ones.
+# out-of-fold folds (GroupKFold by frame) are the same ones. A variant is a pair of functions
+# frame -> instances (validation, test); it is scored and written frame by frame, so only one
+# frame's full-size label maps are in memory at a time (a first version that kept them all ran out of RAM).
 
 # %%
 
 
+def compact(inst):
+    """The label map as uint8 (at most MAX_INSTANCES = 40 per frame): 4 MB a frame instead of 16."""
+    labels, areas, boxes = inst
+    return labels.astype(np.uint8), areas, boxes
+
+
 def table_of(raw: dict, files: list[str]) -> pd.DataFrame:
-    return pd.concat([component_table(contexts[f], raw[f][0], raw[f][2]) for f in files], ignore_index=True)
-
-
-def pick(raw: dict, table: pd.DataFrame, keep: np.ndarray) -> dict:
-    frames = table["frame"].to_numpy()
-    return {f: select(*raw[f], keep[frames == f]) for f in raw}
+    tables = [component_table(contexts[f], raw[f][0], raw[f][2]) for f in files if len(raw[f][1])]
+    return pd.concat(tables, ignore_index=True)
 
 
 def filtered(make_raw) -> dict:
     """Instances from `make_raw(frame)`, then the A0 filter refitted on them with its cutoff chosen again."""
-    raw = {f: make_raw(f) for f in val_files}
+    raw = {f: compact(make_raw(f)) for f in val_files}
     table = table_of(raw, val_files)
     target = np.concatenate([matched_by_any_annotator(truth[f], raw[f][0], raw[f][1]) for f in val_files])
     oof = out_of_fold_scores(table, target)
     cutoff, _ = best_cutoff(oof, raw, table, truth, val_files)
     model = ComponentFilter(cutoff=cutoff).fit(table, target)
-    test_raw = {f: make_raw(f) for f in test_files}
-    test_table = table_of(test_raw, test_files)
+    frames, keep = table["frame"].to_numpy(), oof >= cutoff
+
+    def test(f):
+        inst = make_raw(f)
+        if not len(inst[1]):
+            return inst
+        return select(*inst, model.keep(component_table(contexts[f], inst[0], inst[2])))
+
     return {
-        "val": pick(raw, table, oof >= cutoff),
-        "test": pick(test_raw, test_table, model.keep(test_table)),
+        "val": lambda f: select(*raw[f], keep[frames == f]),
+        "test": test,
         "rule": f"filter cutoff {cutoff}",
         "raw": raw,
         "table": table,
+        "target": target,
         "oof": oof,
-    }
-
-
-def transformed(base: dict, transform, rule: str) -> dict:
-    """`base`'s kept instances, each frame passed through `transform(labels, areas, boxes, frame)`."""
-    return {
-        "val": {f: transform(*base["val"][f], f) for f in val_files},
-        "test": {f: transform(*base["test"][f], f) for f in test_files},
-        "rule": rule,
     }
 
 
@@ -141,99 +143,114 @@ def summary(terms: pd.DataFrame) -> dict:
     }
 
 
+def val_terms(val) -> pd.DataFrame:
+    return pd.concat([score_frames({f: val(f)}, truth, [f]) for f in val_files], ignore_index=True)
+
+
+results = []
+
+
+def evaluate(name: str, variant: dict, terms: pd.DataFrame | None = None) -> pd.DataFrame:
+    """Score a variant against A0, write its submission, and record the result row."""
+    terms = val_terms(variant["val"]) if terms is None else terms
+    delta, lo, hi = paired_bootstrap(a0_terms, terms) if results else (0.0, 0.0, 0.0)
+    test_rows = []
+    for f in test_files:
+        labels, _, boxes = variant["test"](f)
+        test_rows += submission.rows_from_label_map(f.rsplit(".", 1)[0], labels, boxes)
+    submission.write(test_rows, output_dir() / f"submission_{name}.csv")
+    row = {
+        "variant": name,
+        **summary(terms),
+        "delta": round(delta, 4),
+        "ci95_lo": round(lo, 4),
+        "ci95_hi": round(hi, 4),
+        "n_test": len(test_rows),
+        "rule": variant["rule"],
+    }
+    results.append(row)
+    log(row)
+    return terms
+
+
 # %% [markdown]
 # ## A0, and the sanity gate
 
 # %%
-variants = {"a0": filtered(lambda f: instances(probs[f], **params))}
-a0 = variants["a0"]
-a0_terms = score_frames(a0["val"], truth, val_files)
+a0 = filtered(lambda f: instances(probs[f], **params))
+a0_terms = val_terms(a0["val"])
 a0_summary = summary(a0_terms)
 log("A0 rebuilt:", a0_summary, a0["rule"])
 assert a0["rule"] == f"filter cutoff {a0_cutoff}", "does not reproduce predict.py"
 assert abs(a0_summary["pq"] - expected["pq"]) < 1e-4, "does not reproduce predict.py"
 assert all(int(a0_summary[k]) == expected[k] for k in ("tp", "fp", "fn")), "does not reproduce predict.py"
 log("sanity gate passed")
+evaluate("a0", a0, a0_terms)
 
 # %% [markdown]
 # ## Variants
+#
+# `delta` = PQ(variant) - PQ(A0) on the validation frames, with its 95 % paired-bootstrap interval. Frames of
+# consecutive days are not independent, so the intervals are, if anything, too narrow.
 
 # %%
 # keep rule from the metric: same components as A0, a regression on the gain per annotator
 gain = np.concatenate([expected_gain(truth[f], a0["raw"][f][0], a0["raw"][f][1]) for f in val_files])
 oof_gain = out_of_fold_gain(a0["table"], gain)
 regressor = GainRegressor().fit(a0["table"], gain)
-a0_test_raw = {f: instances(probs[f], **params) for f in test_files}
+a0_test_raw = {f: compact(instances(probs[f], **params)) for f in test_files}
 a0_test_table = table_of(a0_test_raw, test_files)
 test_gain = regressor.predict(a0_test_table)
+val_frames, test_frames = a0["table"]["frame"].to_numpy(), a0_test_table["frame"].to_numpy()
 
 
 def gain_rule(threshold: float, rule: str) -> dict:
     return {
-        "val": pick(a0["raw"], a0["table"], oof_gain > threshold),
-        "test": pick(a0_test_raw, a0_test_table, test_gain > threshold),
+        "val": lambda f: select(*a0["raw"][f], (oof_gain > threshold)[val_frames == f]),
+        "test": lambda f: select(*a0_test_raw[f], (test_gain > threshold)[test_frames == f]),
         "rule": rule,
     }
 
 
 half_pq = round(a0_summary["pq"] / 2, 4)
-variants["epq"] = gain_rule(half_pq, f"predicted gain > PQ/2 = {half_pq}")
-sweep = {t: pq_of(score_frames(gain_rule(t, "")["val"], truth, val_files)) for t in GAIN_THRESHOLDS}
+evaluate("epq", gain_rule(half_pq, f"predicted gain > PQ/2 = {half_pq}"))
+sweep = {t: pq_of(val_terms(gain_rule(t, "")["val"])) for t in GAIN_THRESHOLDS}
 best_t = max(sweep, key=sweep.get)
-variants["epq_tuned"] = gain_rule(best_t, f"predicted gain > {best_t} (swept on validation)")
 log("gain threshold sweep:", {float(t): round(v, 4) for t, v in sweep.items()})
+evaluate("epq_tuned", gain_rule(best_t, f"predicted gain > {best_t} (swept on validation)"))
 
 for low in (0.2, 0.1):
-    variants[f"low{low}"] = filtered(lambda f, low=low: instances(probs[f], **{**params, "low": low}))
-    log(f"low{low} done")
+    evaluate(f"low{low}", filtered(lambda f, low=low: instances(probs[f], **{**params, "low": low})))
 
 for low, steps in ((0.2, 10), (0.15, 20)):
-    variants[f"grow{low}_s{steps}"] = transformed(
-        a0,
-        lambda labels, areas, boxes, f, low=low, steps=steps: grow(labels, probs[f], low, steps),
-        f"A0, then grow into prob >= {low} for <= {steps} px",
+    evaluate(
+        f"grow{low}_s{steps}",
+        {
+            "val": lambda f, low=low, steps=steps: grow(a0["val"](f)[0], probs[f], low, steps),
+            "test": lambda f, low=low, steps=steps: grow(a0["test"](f)[0], probs[f], low, steps),
+            "rule": f"A0, then grow into prob >= {low} for <= {steps} px",
+        },
     )
 for radius in (10, 25):
-    variants[f"join{radius}"] = transformed(
-        a0, lambda labels, areas, boxes, f, radius=radius: join(labels, radius), f"A0, then join within {radius} px"
-    )
-variants["join10_pre"] = filtered(lambda f: join(instances(probs[f], **params)[0], 10))
-variants["join10_pre"]["rule"] = "join within 10 px, then the filter (refitted), " + variants["join10_pre"]["rule"]
-log("all variants built")
-
-# %% [markdown]
-# ## Results
-#
-# `delta` = PQ(variant) - PQ(A0) on the validation frames, with its 95 % paired-bootstrap interval. Frames of
-# consecutive days are not independent, so the intervals are, if anything, too narrow.
-
-# %%
-rows = []
-for name, v in variants.items():
-    terms = score_frames(v["val"], truth, val_files)
-    delta, lo, hi = paired_bootstrap(a0_terms, terms)
-    test_rows = []
-    for f in test_files:
-        labels, _, boxes = v["test"][f]
-        test_rows += submission.rows_from_label_map(f.rsplit(".", 1)[0], labels, boxes)
-    submission.write(test_rows, output_dir() / f"submission_{name}.csv")
-    rows.append(
+    evaluate(
+        f"join{radius}",
         {
-            "variant": name,
-            **summary(terms),
-            "delta": round(delta, 4),
-            "ci95_lo": round(lo, 4),
-            "ci95_hi": round(hi, 4),
-            "n_test": len(test_rows),
-            "rule": v["rule"],
-        }
+            "val": lambda f, radius=radius: join(a0["val"](f)[0], radius),
+            "test": lambda f, radius=radius: join(a0["test"](f)[0], radius),
+            "rule": f"A0, then join within {radius} px",
+        },
     )
-results = pd.DataFrame(rows)
-print(results.drop(columns="rule").to_string(index=False))
-results.to_csv(output_dir() / "lab_results.csv", index=False)
+join_pre = filtered(lambda f: join(instances(probs[f], **params)[0], 10))
+join_pre["rule"] = "join within 10 px, then the filter (refitted), " + join_pre["rule"]
+evaluate("join10_pre", join_pre)
+del join_pre
+
+table = pd.DataFrame(results)
+print(table.drop(columns="rule").to_string(index=False))
+table.to_csv(output_dir() / "lab_results.csv", index=False)
 (output_dir() / "lab_results.json").write_text(
     json.dumps(
-        {"a0_params": params, "results": rows, "gain_sweep": {str(t): v for t, v in sweep.items()}},
+        {"a0_params": params, "results": results, "gain_sweep": {str(t): v for t, v in sweep.items()}},
         indent=2,
         default=float,
     )
@@ -247,10 +264,7 @@ results.to_csv(output_dir() / "lab_results.csv", index=False)
 # are the ones the filter cannot tell apart.
 
 # %%
-kept = a0["table"].assign(
-    target=np.concatenate([matched_by_any_annotator(truth[f], a0["raw"][f][0], a0["raw"][f][1]) for f in val_files]),
-    oof=a0["oof"],
-)
+kept = a0["table"].assign(target=a0["target"], oof=a0["oof"])
 kept = kept[(kept["oof"] >= a0_cutoff) & (kept["limb"] < 0.8)].sort_values("oof", ascending=False)
 
 
@@ -264,7 +278,7 @@ def gallery(rows: pd.DataFrame, path: str, title: str, ncols: int = 6):
         ax.axis("off")
     for ax, (_, row) in zip(axes.ravel(), rows.iterrows()):
         f = row["frame"]
-        draw_case(ax, images[f], [c for crops in truth[f] for c in crops], a0["val"][f][0], row)
+        draw_case(ax, images[f], [c for crops in truth[f] for c in crops], a0["val"](f)[0], row)
         ax.set_title(
             f"{f[:16]} limb {row['limb']:.2f} score {row['oof']:.2f}\narea {int(row['area'])} elong {row['elongation']:.1f} dark {row['darkness']:.2f}",
             fontsize=7,
