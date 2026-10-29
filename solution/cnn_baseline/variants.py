@@ -74,8 +74,8 @@ def grow(labels: np.ndarray, prob: np.ndarray, low: float, steps: int):
     return grown.astype(np.int32), areas, boxes
 
 
-def join(labels: np.ndarray, radius: int):
-    """Merge instances whose pixels come within `radius` px of each other (transitively); no pixels are added."""
+def merge(labels: np.ndarray, links) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Merge the instances of each (a, b) in `links`, transitively; renumber largest first. No pixels are added."""
     n = int(labels.max())
     parent = np.arange(n + 1)
 
@@ -85,18 +85,23 @@ def join(labels: np.ndarray, radius: int):
             k = parent[k]
         return k
 
-    _, boxes = label_stats(labels, n)
+    for a, b in links:
+        parent[root(int(b))] = root(int(a))
+    return renumber(labels, np.array([root(k) for k in range(n + 1)]))
+
+
+def join(labels: np.ndarray, radius: int):
+    """Merge instances whose pixels come within `radius` px of each other (transitively); no pixels are added."""
+    _, boxes = label_stats(labels, int(labels.max()))
     kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * radius + 1, 2 * radius + 1))
+    links = []
     for k, (x, y, w, h) in enumerate(boxes, start=1):
         x0, y0 = max(x - radius, 0), max(y - radius, 0)
         x1, y1 = min(x + w + radius, labels.shape[1]), min(y + h + radius, labels.shape[0])
         window = labels[y0:y1, x0:x1]
         near = cv2.dilate((window == k).astype(np.uint8), kernel) > 0
-        for other in np.unique(window[near]):
-            if other and other != k:
-                parent[root(other)] = root(k)
-    mapping = np.array([root(k) for k in range(n + 1)])
-    return renumber(labels, mapping)
+        links += [(k, other) for other in np.unique(window[near]) if other and other != k]
+    return merge(labels, links)
 
 
 def expected_gain(gt_crops_per_annotator: list[list[InstanceCrop]], labels: np.ndarray, areas: np.ndarray):
