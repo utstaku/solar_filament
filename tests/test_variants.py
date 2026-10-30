@@ -11,6 +11,7 @@ from cnn_baseline.variants import (
     label_stats,
     out_of_fold_gain,
     score_frames,
+    strict_keep,
 )
 from scoring.metric import PanopticQuality, instance_crops
 
@@ -123,3 +124,15 @@ def test_score_frames_matches_the_metric():
     terms = score_frames(predictions, {"a": [crops(filament)]}, ["a"])
     assert terms[["tp", "fp", "fn"]].iloc[0].tolist() == [1, 1, 0]
     assert terms["iou_sum"].iloc[0] == pytest.approx(0.8)
+
+
+def test_strict_keep_needs_a_peak_a_high_mean_and_an_area():
+    prob = np.zeros((64, 128), np.uint8)
+    prob[5:15, 5:45] = 250  # peak 0.98 < 0.99: dropped
+    prob[20:30, 5:45] = 240
+    prob[24, 20] = 255  # peak 1.0, mean ~0.94: kept
+    prob[40:50, 5:45] = 120
+    prob[44, 20] = 255  # peak 1.0 but mean ~0.47: dropped
+    prob[55:60, 100:110] = 255  # perfect but 50 px: dropped
+    labels, areas, _ = strict_keep(prob)
+    assert areas.tolist() == [400] and (labels[20:30, 5:45] == 1).all()

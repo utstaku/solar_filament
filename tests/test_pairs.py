@@ -7,10 +7,12 @@ from cnn_baseline.pairs import (
     component_axes,
     fibril_direction,
     join_pairs,
+    join_rule,
     line_angle,
     pair_table,
     pairs,
     path_values,
+    rescue,
     same_filament,
 )
 from error_analysis.instances import FrameContext
@@ -118,3 +120,22 @@ def test_join_pairs_merges_only_the_chosen_pairs():
     joined, areas, _ = join_pairs(labels, table, np.array([True, False]))
     assert areas.tolist() == [720 + 360, 112]
     assert joined.max() == 2 and (joined[100:106, 140:160] == 0).all()
+
+
+def test_join_rule_joins_continuations_far_and_anything_near():
+    labels = spine_and_barb()
+    table = pair_table(context(labels), labels, radius=50)
+    decided = dict(zip(zip(table["a"], table["b"]), join_rule(table)))
+    assert decided[(1, 2)] and decided[(1, 3)]  # continuation 21 px along the axis; barb 7 px away
+    assert not decided.get((2, 3), False)  # 2 and 3 are neither close nor aligned
+
+
+def test_rescue_brings_back_dropped_pieces_that_continue_a_kept_one():
+    labels = spine_and_barb()
+    labels[20:30, 250:280] = 4  # an isolated piece far from everything
+    kept_only_spine = np.array([True, False, False, False])
+    out, areas, _ = rescue(context(labels), labels, kept_only_spine)
+    assert areas.tolist() == [720 + 360 + 112]  # continuation and barb rejoin the kept spine; piece 4 stays out
+    assert (out[20:30, 250:280] == 0).all()
+    _, nothing, _ = rescue(context(labels), labels, np.zeros(4, bool))
+    assert nothing.size == 0  # dropped pieces never come back on their own

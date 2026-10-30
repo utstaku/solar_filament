@@ -18,6 +18,7 @@ from sklearn.ensemble import GradientBoostingRegressor
 from sklearn.model_selection import GroupKFold
 
 from cnn_baseline.filtering import FEATURES
+from cnn_baseline.postprocess import instances, select
 from error_analysis.instances import overlaps
 from scoring.metric import IOU_THRESHOLD, InstanceCrop, PanopticQuality
 
@@ -157,3 +158,11 @@ def score_frames(predictions: dict, truth: dict, files: list[str]) -> pd.DataFra
             pq.update(gt_crops, labels, areas)
         rows.append({"frame": f, "tp": pq.tp, "fp": pq.fp, "fn": pq.fn, "iou_sum": pq.iou_sum})
     return pd.DataFrame(rows, columns=["frame", "tp", "fp", "fn", "iou_sum"])
+
+
+def strict_keep(prob: np.ndarray, low: float = 0.35, peak: float = 0.99, mean: float = 0.85, min_area: int = 200):
+    """The keep rule of the public "OOF 0.45 vs Public 0.39" notebook: components of p >= `low` (8-connected)
+    whose peak reaches `peak`, whose mean probability is at least `mean` and whose area is at least `min_area`."""
+    labels, areas, boxes = instances(prob, threshold=peak, min_area=min_area, low=low)
+    sums = np.bincount(labels.ravel(), weights=prob.ravel().astype(float), minlength=len(areas) + 1)[1:]
+    return select(labels, areas, boxes, sums / np.maximum(areas, 1) / 255 >= mean)

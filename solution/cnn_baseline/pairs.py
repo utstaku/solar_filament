@@ -19,6 +19,7 @@ import numpy as np
 import pandas as pd
 from scipy import ndimage
 
+from cnn_baseline.postprocess import select
 from cnn_baseline.variants import label_stats, merge
 from error_analysis.instances import FrameContext, overlaps
 from preprocess.disk import REL_SCALE
@@ -233,3 +234,29 @@ def aligned_end_to_end(table: pd.DataFrame, max_angle: float = np.radians(30), m
     large = (table["elong_large"] >= ORIENTED) & (table["gap_large"] <= max_angle) & (table["end_large"] <= max_end)
     small = (table["elong_small"] < ORIENTED) | (table["gap_small"] <= max_angle)
     return (large & small).to_numpy()
+
+
+def join_rule(table: pd.DataFrame, near: int = 10, far: int = 50) -> np.ndarray:
+    """The rule of `join_lab.py`: pieces that continue each other end to end along the axis join up to `far`
+    px apart, any two pieces up to `near` px (barbs, blobs)."""
+    return ((table["dist"] <= near) | ((table["dist"] <= far) & aligned_end_to_end(table))).to_numpy()
+
+
+def rescue(ctx: FrameContext, labels: np.ndarray, keep: np.ndarray, radius: int = 50):
+    """Kept instances joined by `join_rule`, with each other and with dropped instances that continue them.
+
+    `labels` holds every candidate 1..K before the filter and `keep` (bool[K]) the filter's decision. A dropped
+    piece comes back only as part of a group that contains a kept one; groups of dropped pieces stay dropped.
+    """
+    keep = np.asarray(keep, bool)
+    assert int(labels.max()) == len(keep), "one decision per candidate"
+    table = pair_table(ctx, labels, radius)
+    if len(table):
+        a, b = table["a"].to_numpy(int) - 1, table["b"].to_numpy(int) - 1
+        joined, areas, boxes = join_pairs(labels, table, join_rule(table) & (keep[a] | keep[b]))
+    else:
+        joined, areas, boxes = merge(labels, [])
+    has_kept = np.zeros(len(areas) + 1, bool)
+    has_kept[np.unique(joined[np.r_[False, keep][labels]])] = True
+    has_kept[0] = False
+    return select(joined, areas, boxes, has_kept[1:])
