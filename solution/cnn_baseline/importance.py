@@ -132,3 +132,26 @@ def drop_column(
         raise ValueError(f"{feature!r} is not one of {features}")
     kept = [f for f in features if f != feature]
     return evaluate(out_of_fold_scores(table, target, n_splits=n_splits, features=kept))
+
+
+def public_pq(terms: pd.DataFrame, r: float) -> float:
+    """Expected public PQ if each filament an annotator drew in our training labels appears in the test labels
+    only with probability `r` (the hypothesis of the public "OOF 0.45 vs Public 0.39" notebook).
+
+    A match whose filament is missing from the test labels turns into a false positive, and a missed filament
+    is missing as often: PQ' = r IoU / (r TP + FP/2 + (1 - r) TP/2 + r FN/2). r = 1 gives back PQ.
+    """
+    tp, fp, fn, iou_sum = (float(terms[c].sum()) for c in TERMS)
+    denominator = r * tp + 0.5 * fp + 0.5 * (1 - r) * tp + 0.5 * r * fn
+    return r * iou_sum / denominator if denominator > 0 else 0.0
+
+
+def fit_r(terms: pd.DataFrame, public_score: float) -> float:
+    """The r for which `public_pq(terms, r)` equals an observed public score (bisection over (0, 1])."""
+    lo, hi = 1e-3, 1.0
+    if public_pq(terms, hi) < public_score:
+        return 1.0  # the public score is at or above validation: no sparsity to explain
+    for _ in range(60):
+        mid = (lo + hi) / 2
+        lo, hi = (mid, hi) if public_pq(terms, mid) < public_score else (lo, mid)
+    return (lo + hi) / 2

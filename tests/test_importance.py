@@ -8,10 +8,12 @@ from cnn_baseline.filtering import out_of_fold_scores
 from cnn_baseline.importance import (
     best_cutoff,
     drop_column,
+    fit_r,
     frame_terms,
     paired_bootstrap,
     permutation_importance,
     pq_of,
+    public_pq,
 )
 from cnn_baseline.postprocess import instances
 from scoring.metric import PanopticQuality, instance_crops
@@ -187,3 +189,12 @@ def test_drop_column_refits_without_the_feature(components):
     assert drop_column(table, target, "noise", auc_of(target), features=FEATURES) == pytest.approx(full, abs=0.03)
     with pytest.raises(ValueError):
         drop_column(table, target, "limb", auc_of(target), features=FEATURES)
+
+
+def test_public_pq_reduces_to_pq_and_fit_r_inverts_it():
+    terms = pd.DataFrame({"frame": ["x"], "tp": [774], "fp": [564], "fn": [613], "iou_sum": [514.56]})
+    assert public_pq(terms, 1.0) == pytest.approx(pq_of(terms))
+    assert public_pq(terms, 0.77) < pq_of(terms)  # sparser test labels: lower score
+    r = fit_r(terms, 0.33)
+    assert 0.7 < r < 0.85 and public_pq(terms, r) == pytest.approx(0.33, abs=1e-6)
+    assert fit_r(terms, 0.5) == 1.0  # above validation: nothing to explain
