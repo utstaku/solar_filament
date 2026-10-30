@@ -92,3 +92,35 @@ def predict(
             logits = model(frame.unsqueeze(0).to(device))
         prob = torch.sigmoid(logits.float()).squeeze().mul(255).round().to(torch.uint8)
         yield prob.cpu().numpy()
+
+
+D4 = [(k, flip) for flip in (False, True) for k in range(4)]  # (quarter turns, mirrored); identity first
+
+
+@torch.no_grad()
+def predict_tta(
+    model: nn.Module, frames: Iterable[torch.Tensor], device: torch.device | None = None, views: int = 8
+) -> Iterator[tuple[np.ndarray, np.ndarray]]:
+    """Yield (plain, averaged) uint8 maps per (2, H, W) frame: the identity view alone, as `predict` gives it,
+    and the mean probability over the first `views` rotations / mirror images, each turned back first.
+
+    A filament has no preferred orientation in the image, so the network should answer the same for every
+    view; averaging removes the part of its output that depends on the view.
+    """
+    device = device or pick_device()
+    model.to(device).eval()
+    use_amp = device.type == "cuda"
+    for frame in frames:
+        plain, total = None, None
+        for k, flip in D4[:views]:
+            x = torch.rot90(frame.flip(-1) if flip else frame, k, dims=(-2, -1))
+            with torch.autocast(device_type=device.type, dtype=torch.float16, enabled=use_amp):
+                logits = model(x.unsqueeze(0).to(device))
+            prob = torch.rot90(torch.sigmoid(logits.float()).squeeze(), -k, dims=(-2, -1))
+            prob = prob.flip(-1) if flip else prob
+            plain = prob if plain is None else plain
+            total = prob.clone() if total is None else total + prob
+        yield (
+            plain.mul(255).round().to(torch.uint8).cpu().numpy(),
+            total.div(views).mul(255).round().to(torch.uint8).cpu().numpy(),
+        )

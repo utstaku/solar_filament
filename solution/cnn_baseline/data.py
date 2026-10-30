@@ -27,6 +27,16 @@ def split_files(files: list[str], validation_fraction: float, seed: int) -> tupl
     return files[n_val:], files[:n_val]
 
 
+def fold_files(files: list[str], n_folds: int, seed: int) -> list[list[str]]:
+    """`n_folds` disjoint groups of physical frames covering all of `files` (the shuffle of `split_files`).
+
+    Every frame is held out exactly once, so out-of-fold predictions cover the whole training set.
+    """
+    files = sorted(files)
+    random.Random(seed).shuffle(files)
+    return [files[k::n_folds] for k in range(n_folds)]
+
+
 def channels(image: np.ndarray) -> np.ndarray:
     """float32 (2, H, W): the raw frame and its limb-darkening-corrected version, both scaled to [0, 1]."""
     return np.stack([image, flatten(image)]).astype(np.float32) / 255.0

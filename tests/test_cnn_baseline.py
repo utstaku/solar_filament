@@ -9,7 +9,7 @@ from pycocotools import mask as mask_util
 from synthetic import SIZE, make_frame
 from torch.utils.data import DataLoader
 
-from cnn_baseline.data import FilamentFrames, channels, collate_tiles, soft_target
+from cnn_baseline.data import FilamentFrames, channels, collate_tiles, fold_files, soft_target
 from cnn_baseline.filtering import (
     ComponentFilter,
     component_table,
@@ -19,7 +19,7 @@ from cnn_baseline.filtering import (
     trainable,
 )
 from cnn_baseline.postprocess import instances, on_disk, select
-from cnn_baseline.training import bce_dice_loss, fit, predict
+from cnn_baseline.training import bce_dice_loss, fit, predict, predict_tta
 from dataset.annotations import load_annotations
 from models.unet import UNet
 from preprocess.images import read_gray
@@ -213,3 +213,42 @@ def test_pick_device_refuses_the_cpu_on_kaggle(monkeypatch):
     monkeypatch.setenv("KAGGLE_KERNEL_RUN_TYPE", "Batch")
     with pytest.raises(RuntimeError, match="no GPU"):
         pick_device()
+
+
+def test_fold_files_hold_out_every_frame_once():
+    files = [f"2011{m:02d}{d:02d}000000Ch.jpeg" for m in range(1, 4) for d in range(1, 24)]  # 69 frames
+    folds = fold_files(files, 5, seed=0)
+    assert len(folds) == 5 and sorted(f for fold in folds for f in fold) == sorted(files)
+    assert {len(fold) for fold in folds} <= {13, 14}
+    assert folds == fold_files(list(reversed(files)), 5, seed=0)  # depends on the names, not their order
+    assert folds != fold_files(files, 5, seed=1)
+
+
+class _Brightness(torch.nn.Module):
+    """A 'network' whose logit is the first channel's brightness: it treats every orientation alike."""
+
+    def forward(self, x):
+        return 8 * (x[:, :1] - 0.5)
+
+
+class _Sideways(torch.nn.Module):
+    """A 'network' that looks one pixel to its left: its answer depends on how the frame is turned."""
+
+    def forward(self, x):
+        return 8 * (torch.roll(x[:, :1], 1, dims=-1) - 0.5)
+
+
+def test_predict_tta_turns_every_view_back():
+    rng = np.random.default_rng(0)
+    frame = torch.from_numpy(rng.random((2, 48, 64)).astype(np.float32))  # asymmetric, not square
+    plain, averaged = next(predict_tta(_Brightness(), [frame], device=torch.device("cpu")))
+    assert plain.shape == averaged.shape == (48, 64) and plain.dtype == averaged.dtype == np.uint8
+    assert np.abs(plain.astype(int) - averaged.astype(int)).max() <= 1  # all 8 views agree once turned back
+    assert np.array_equal(plain, next(predict(_Brightness(), [frame], device=torch.device("cpu"))))
+
+    sideways = _Sideways()
+    plain, averaged = next(predict_tta(sideways, [frame], device=torch.device("cpu")))
+    assert np.array_equal(plain, next(predict(sideways, [frame], device=torch.device("cpu"))))
+    assert np.abs(plain.astype(int) - averaged.astype(int)).max() > 10  # its answer depends on the view
+    _, single = next(predict_tta(sideways, [frame], device=torch.device("cpu"), views=1))
+    assert np.array_equal(single, plain)
