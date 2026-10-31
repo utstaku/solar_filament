@@ -92,3 +92,20 @@ def test_rotate_mask_loses_what_rotates_behind_the_limb():
     mask[1019:1030, x - 2 : x + 3] = True
     assert not rotate_mask(mask, CENTRE, RADIUS, 0.0, 0.0, days=2.0).any()  # 80 + 27 deg: on the far side
     assert rotate_mask(mask, CENTRE, RADIUS, 0.0, 0.0, days=-2.0).any()  # earlier it was further east: visible
+
+
+def test_rotate_mask_between_disks_of_different_frames_and_rigid_rotation():
+    shape = (2048, 2048)
+    mask = np.zeros(shape, bool)
+    mask[1019:1030, 1019:1030] = True
+    source = ((CENTRE[0] - 10, CENTRE[1] + 4), RADIUS)  # the source frame's disk sits 10 px left, 4 px lower
+    moved = rotate_mask(mask, CENTRE, RADIUS, 0.0, 0.0, days=0.0, source_disk=source)
+    ys, xs = np.nonzero(moved)
+    assert xs.mean() == pytest.approx(1024 + 10, abs=1) and ys.mean() == pytest.approx(1024 - 4, abs=1)
+    frozen = rotate_mask(mask, CENTRE, RADIUS, 0.0, 0.0, days=1.0, rate=0.0)
+    assert (frozen == mask).all()
+    high = np.zeros(shape, bool)
+    high[1024 - 640 : 1024 - 630, 1019:1030] = True  # ~45 deg north, where the Sun turns more slowly
+    differential = np.nonzero(rotate_mask(high, CENTRE, RADIUS, 0.0, 0.0, days=1.0))[1].mean()
+    rigid = np.nonzero(rotate_mask(high, CENTRE, RADIUS, 0.0, 0.0, days=1.0, rate=float(synodic_rate(0.0))))[1].mean()
+    assert differential < rigid - 10  # differential rotation moves high latitudes less

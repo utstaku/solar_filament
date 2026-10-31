@@ -85,18 +85,34 @@ def synodic_rate(lat) -> np.ndarray:
     return a + b * s2 + c * s2**2 - EARTH_ORBIT
 
 
-def rotate_mask(mask: np.ndarray, centre, radius, b0_from: float, b0_to: float, days: float, p: float = 0.0):
+def rotate_mask(
+    mask: np.ndarray,
+    centre,
+    radius,
+    b0_from: float,
+    b0_to: float,
+    days: float,
+    p: float = 0.0,
+    source_disk=None,
+    rate: float | None = None,
+):
     """`mask` (bool, H x W) of a frame, moved to a frame taken `days` later (negative: earlier).
 
     Work backwards from the target so the result has no holes: for each target pixel on the disk, find its
     (lat, lon) at the target time (b0_to), subtract synodic_rate(lat) * days from lon, project back with
     b0_from, and take the source mask's value there (nearest pixel). Target pixels whose source point is on
-    the far side, or off the source disk, are False. The disk is assumed not to move between the frames.
+    the far side, or off the source disk, are False.
+
+    `centre`, `radius` describe the target frame's disk; `source_disk` = (centre, radius) the source frame's
+    when it differs (frames from different sites). `rate` (deg / day) replaces differential rotation by a
+    rigid one, for comparison.
     """
     height, width = mask.shape
     ys, xs = np.mgrid[0:height, 0:width]
     lat, lon, on_disk = pixel_to_heliographic(xs, ys, centre, radius, b0_to, p)
-    sx, sy, visible = heliographic_to_pixel(lat, lon - synodic_rate(lat) * days, centre, radius, b0_from, p)
+    shift = (synodic_rate(lat) if rate is None else rate) * days
+    source_centre, source_radius = source_disk or (centre, radius)
+    sx, sy, visible = heliographic_to_pixel(lat, lon - shift, source_centre, source_radius, b0_from, p)
     sx = np.rint(np.nan_to_num(sx, nan=-1)).astype(int)
     sy = np.rint(np.nan_to_num(sy, nan=-1)).astype(int)
     ok = on_disk & visible & (sx >= 0) & (sx < width) & (sy >= 0) & (sy < height)
