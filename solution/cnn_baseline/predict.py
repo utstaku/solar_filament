@@ -88,6 +88,10 @@ probs = dict(
 )
 truth = {f: [instance_crops(rles) for rles in annotations.rles_for_file(f)] for f in val_files}
 log(f"{len(val_files)} validation and {len(test_files)} test frames predicted on {device}")
+# kept on Kaggle (not fetched: only csv/json/txt come back) so CPU notebooks can retry post-processing,
+# and with the test maps also write submissions without a GPU
+np.savez_compressed(output_dir() / "val_probs.npz", **{f: probs[f] for f in val_files})
+np.savez_compressed(output_dir() / "test_probs.npz", **{f: probs[f] for f in test_files})
 
 # %% [markdown]
 # ## Stage A: hysteresis threshold and minimum area, chosen on validation PQ
