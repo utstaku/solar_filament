@@ -19,6 +19,13 @@ scoring/      ★ 採点のされ方（手法に依らず固定）
 preprocess/   ★ 画像の前処理（手法をまたいで使い回す）
   images.py  disk.py        JPEG読込 / 円盤検出・周縁減光の除去
 
+postprocess/  ★ 後処理（確率マップ → 提出する個体。手法をまたいで使い回す）
+  instances.py             ヒステリシスしきい値 + 連結成分、円盤外マスク、ラベルの選別・結合
+  joining.py               破片の結合（端と端で軸がそろえば50pxまで、それ以外は10pxまで）
+  filtering.py             成分ごとのGBMフィルタ（形・暗さ・周縁からの距離・確信度）
+  tuning.py                フィルタのcutoffをPQで選ぶ（画像ごとのPQの項）
+  pipeline.py              全部をつないだもの: `pipeline.fit(OOFの文脈, 正解, 画像)` → 学習済みの後処理
+
 models/       ★ モデル定義（学習の手順は含めない）。`from models.unet import UNet`
   unet.py                  ごく普通のU-Net（事前学習なし、pure PyTorch）
 
@@ -35,7 +42,6 @@ solution/     ★ 手法ごとのディレクトリ。開発の中心
   cnn_baseline/            CNNによる最初の学習型ベースライン
     data.py                  読込・ソフトラベル（複数アノテーターの平均）・タイル切り出し
     training.py              学習ループ（AdamW + one-cycle、CUDAではAMP）と全フレーム推論
-    postprocess.py           確率マップ → 個体（しきい値 + 連結成分）
     main.py                  → notebook「filament-cnn-baseline」（GPU）
   <次の手法>/               学習用と推論用を分けるなら train.py / predict.py → 「filament-<手法>-train」「…-predict」
 
@@ -57,7 +63,7 @@ uv run filament run solution/classical_baseline/main.py --submit "メモ"   # �
 `run` が順に行うこと:
 
 1. `pytest`（失敗したらpushしない。GPU枠をバグで溶かさないため）
-2. 実行スクリプトと、それが import しているモジュール（`solution/`・`dataset/`・`scoring/`・`preprocess/`・`models/`）**だけ**から自己完結したnotebookを生成（`build/<name>/`）
+2. 実行スクリプトと、それが import しているモジュール（`solution/`・`dataset/`・`scoring/`・`preprocess/`・`postprocess/`・`models/`）**だけ**から自己完結したnotebookを生成（`build/<name>/`）
 3. Kaggleへpush（private）→ 完了まで待機
 4. ログと小さい出力（csv/json/txt）だけを `outputs/<name>/` に取得。重みや画像はKaggleに残す
 5. `submission.csv` の形式チェック（列・ID・RLEの妥当性・空マスク・重なり）
@@ -78,7 +84,7 @@ notebook名はこれに `filament-` を付けたもの。
 
 1. **書く**: 手法ごとに `solution/<手法名>/` を作り、その手法だけのコード（損失・学習ループ・後処理）と
    実行スクリプト（`main.py`、または `train.py` / `predict.py` のように複数）を置く。モデルの定義は `models/`、
-   手法をまたぐ前処理は `preprocess/`、配布データと採点の形式は `dataset/`・`scoring/`（普段は変えない）。
+   手法をまたぐ前処理は `preprocess/`、後処理は `postprocess/`、配布データと採点の形式は `dataset/`・`scoring/`（普段は変えない）。
    実行スクリプトは percent 形式（`# %%` でコードセル、`# %% [markdown]` でMarkdownセル）で、
    `from scoring.metric import ...` や `from unet.model import ...` と普通に import する（`__init__.py` は無くてもよい）。
 2. **ローカルで確かめる**: `uv run pytest`。データは無いので `tests/synthetic.py` の合成画像

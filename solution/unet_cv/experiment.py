@@ -17,9 +17,9 @@ from cnn_baseline.training import fit, pick_device, predict
 from dataset.annotations import load_annotations
 from dataset.paths import find_data_root, output_dir
 from models.unet import UNet
+from postprocess.filtering import ComponentFilter, component_table, frame_context, matched_by_any_annotator
+from postprocess.instances import instances, select
 from preprocess.images import read_gray
-from pretrained_unet.filtering import ComponentFilter, component_table, frame_context, matched_by_any_annotator
-from pretrained_unet.postprocess import instances, select
 from scoring.metric import PanopticQuality, instance_crops
 from scoring.submission import rows_from_label_map, write
 

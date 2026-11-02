@@ -10,7 +10,10 @@ from synthetic import SIZE, make_frame
 from torch.utils.data import DataLoader
 
 from cnn_baseline.data import FilamentFrames, channels, collate_tiles, fold_files, soft_target
-from cnn_baseline.filtering import (
+from cnn_baseline.training import bce_dice_loss, fit, predict, predict_tta
+from dataset.annotations import load_annotations
+from models.unet import UNet
+from postprocess.filtering import (
     ComponentFilter,
     component_table,
     frame_context,
@@ -18,10 +21,7 @@ from cnn_baseline.filtering import (
     out_of_fold_scores,
     trainable,
 )
-from cnn_baseline.postprocess import instances, on_disk, select
-from cnn_baseline.training import bce_dice_loss, fit, predict, predict_tta
-from dataset.annotations import load_annotations
-from models.unet import UNet
+from postprocess.instances import instances, on_disk, select
 from preprocess.images import read_gray
 from scoring.metric import PanopticQuality, instance_crops
 

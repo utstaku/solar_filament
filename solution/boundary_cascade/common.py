@@ -13,9 +13,9 @@ from cnn_baseline.data import split_files
 from cnn_baseline.training import bce_dice_loss
 from dataset.annotations import load_annotations
 from dataset.paths import find_data_root
+from postprocess.filtering import ComponentFilter, component_table, frame_context, matched_by_any_annotator
+from postprocess.instances import select
 from preprocess.images import read_gray
-from pretrained_unet.filtering import ComponentFilter, component_table, frame_context, matched_by_any_annotator
-from pretrained_unet.postprocess import select
 from scoring.metric import PanopticQuality, instance_crops
 
 

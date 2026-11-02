@@ -26,7 +26,10 @@ import pandas as pd
 from sklearn.metrics import roc_auc_score
 
 from cnn_baseline.data import split_files
-from cnn_baseline.filtering import (
+from cnn_baseline.importance import drop_column, paired_bootstrap, permutation_importance
+from dataset.annotations import load_annotations
+from dataset.paths import find_data_root, find_input, output_dir
+from postprocess.filtering import (
     FEATURES,
     ComponentFilter,
     component_table,
@@ -34,17 +37,8 @@ from cnn_baseline.filtering import (
     matched_by_any_annotator,
     out_of_fold_scores,
 )
-from cnn_baseline.importance import (
-    best_cutoff,
-    drop_column,
-    frame_terms,
-    paired_bootstrap,
-    permutation_importance,
-    pq_of,
-)
-from cnn_baseline.postprocess import instances
-from dataset.annotations import load_annotations
-from dataset.paths import find_data_root, find_input, output_dir
+from postprocess.instances import instances
+from postprocess.tuning import best_cutoff, frame_terms, pq_of
 from preprocess.images import read_gray
 from scoring.metric import instance_crops
 

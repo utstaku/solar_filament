@@ -13,8 +13,8 @@ from cnn_baseline.data import FilamentFrames, channels, collate_tiles, worker_in
 from cnn_baseline.training import bce_dice_loss, pick_device, predict
 from dataset.paths import output_dir
 from models.unet import UNet
+from postprocess.instances import instances, on_disk
 from preprocess.images import read_gray
-from pretrained_unet.postprocess import instances, on_disk
 
 
 def boundary_loss(logits, target, weight=2.0):

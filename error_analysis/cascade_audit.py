@@ -28,8 +28,8 @@ from cnn_baseline.training import pick_device
 from dataset.paths import find_input, output_dir
 from error_analysis.cascade_stages import best_box_iou, diagnose
 from models.crop_unet import crop_unet
+from postprocess.instances import select
 from preprocess.images import read_gray
-from pretrained_unet.postprocess import select
 from scoring.metric import instance_crops
 
 settings.update({"wandb": False, "mlflow": False, "comet": False, "tensorboard": False})

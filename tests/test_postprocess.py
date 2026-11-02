@@ -4,7 +4,7 @@ import pandas as pd
 from pycocotools import mask as mask_util
 from test_cnn_baseline import dataset_dir  # noqa: F401
 
-from pretrained_unet.filtering import (
+from postprocess.filtering import (
     ComponentFilter,
     component_table,
     frame_context,
@@ -12,7 +12,7 @@ from pretrained_unet.filtering import (
     out_of_fold_scores,
     trainable,
 )
-from pretrained_unet.postprocess import instances, select
+from postprocess.instances import instances, select
 from scoring.metric import instance_crops
 
 

@@ -13,11 +13,11 @@ from torch.utils.data import DataLoader
 
 import error_analysis.run
 from cnn_baseline.data import FilamentFrames, channels, collate_tiles, split_files, worker_init
-from cnn_baseline.postprocess import instances, on_disk
 from cnn_baseline.training import pick_device
 from dataset.annotations import load_annotations
 from dataset.paths import find_data_root, output_dir
 from models.pretrained_unet import ENCODERS, PretrainedUNet
+from postprocess.instances import instances, on_disk
 from preprocess.images import read_gray
 from pretrained_unet.data import SkeletonFrames, collate_skeleton
 from pretrained_unet.training import fit, predict_frame

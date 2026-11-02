@@ -27,11 +27,11 @@ import torch
 from torch.utils.data import DataLoader
 
 from cnn_baseline.data import FilamentFrames, channels, collate_tiles, fold_files, worker_init
-from cnn_baseline.postprocess import instances
 from cnn_baseline.training import fit, pick_device, predict_tta
 from dataset.annotations import load_annotations
 from dataset.paths import find_data_root, output_dir
 from models.unet import UNet
+from postprocess.instances import instances
 from preprocess.images import read_gray
 from scoring.metric import PanopticQuality, instance_crops
 

@@ -2,7 +2,8 @@ import numpy as np
 import pytest
 from pycocotools import mask as mask_util
 
-from cnn_baseline.pairs import (
+from error_analysis.instances import FrameContext
+from postprocess.joining import (
     aligned_end_to_end,
     component_axes,
     fibril_direction,
@@ -15,7 +16,6 @@ from cnn_baseline.pairs import (
     rescue,
     same_filament,
 )
-from error_analysis.instances import FrameContext
 from preprocess.disk import REL_SCALE
 from scoring.metric import instance_crops
 

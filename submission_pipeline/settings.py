@@ -15,6 +15,7 @@ PACKAGES = {
     "dataset": ROOT / "dataset",  # data layout and annotations
     "scoring": ROOT / "scoring",  # submission format and metric
     "preprocess": ROOT / "preprocess",  # image preprocessing
+    "postprocess": ROOT / "postprocess",  # probability maps -> joined, filtered instances
     "models": ROOT / "models",  # architectures
     "error_analysis": ROOT / "error_analysis",  # per-instance error tables, what-if bounds, galleries
 }
