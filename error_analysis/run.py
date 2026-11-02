@@ -23,30 +23,39 @@ Instances = Callable[..., tuple[np.ndarray, np.ndarray, np.ndarray]]
 """(prob, **params) -> (label map, areas, boxes), e.g. cnn_baseline.postprocess.instances."""
 
 
+Prediction = tuple[np.ndarray, np.ndarray, np.ndarray]
+"""(label map, areas, boxes) of one frame."""
+
+
 def run(
     annotations: Annotations,
     image_dir: Path,
     files: list[str],
     probs: dict[str, np.ndarray],
-    instances: Instances,
+    instances: Instances | None,
     params: dict,
     out_dir: Path,
     galleries: bool = True,
     log=print,
+    predictions: dict[str, Prediction] | None = None,
 ) -> dict:
     """Classify every filament and prediction of `files`, write the tables, report, breakdowns and
     galleries into `out_dir`, and return the summary.
 
     `probs` holds the model's uint8 probability map per frame; `instances(prob, **params)` turns one
-    into predictions the way the submission does.
+    into predictions the way the submission does. A post-processing that needs more than the
+    probability map passes its results as `predictions` instead; `params` is then only recorded.
     """
     out_dir = Path(out_dir)
+    predictions = dict(predictions or {})
     images, gt_rows, pred_rows = {}, [], []
     for f in files:
         images[f] = image = read_gray(Path(image_dir) / f)
         cx, cy, radius = disk_geometry(image)
         ctx = FrameContext(name=f, flat=flatten(image), centre=(cx, cy), radius=radius, prob=probs[f])
-        labels, areas, boxes = instances(probs[f], **params)
+        if f not in predictions:
+            predictions[f] = instances(probs[f], **params)
+        labels, areas, boxes = predictions[f]
         entries = annotations.file_to_entries.get(f, [])
         g, p = analyze_frame(ctx, [(e, annotations.entry_to_rles.get(e, [])) for e in entries], labels, areas, boxes)
         gt_rows += g
@@ -73,8 +82,7 @@ def run(
     if galleries:
 
         def context(frame, annotator):
-            labels, _, _ = instances(probs[frame], **params)
-            return images[frame], instance_crops(annotations.entry_to_rles.get(annotator, [])), labels
+            return images[frame], instance_crops(annotations.entry_to_rles.get(annotator, [])), predictions[frame][0]
 
         paths = save_galleries(worst_cases(gt, pred, k=8), context, out_dir)
         log("galleries:", [p.name for p in paths])

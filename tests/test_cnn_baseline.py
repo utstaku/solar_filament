@@ -2,15 +2,24 @@ import json
 
 import cv2
 import numpy as np
+import pandas as pd
 import pytest
 import torch
 from pycocotools import mask as mask_util
 from synthetic import SIZE, make_frame
 from torch.utils.data import DataLoader
 
-from cnn_baseline.data import FilamentFrames, channels, collate_tiles, soft_target
-from cnn_baseline.postprocess import instances, on_disk
-from cnn_baseline.training import bce_dice_loss, fit, predict
+from cnn_baseline.data import FilamentFrames, channels, collate_tiles, fold_files, soft_target
+from cnn_baseline.filtering import (
+    ComponentFilter,
+    component_table,
+    frame_context,
+    matched_by_any_annotator,
+    out_of_fold_scores,
+    trainable,
+)
+from cnn_baseline.postprocess import instances, on_disk, select
+from cnn_baseline.training import bce_dice_loss, fit, predict, predict_tta
 from dataset.annotations import load_annotations
 from models.unet import UNet
 from preprocess.images import read_gray
@@ -136,6 +145,64 @@ def test_instances_edge_cases():
     assert len(areas) == 1 and areas[0] == 300 and tuple(boxes[0]) == (10, 10, 30, 10)
 
 
+def test_hysteresis_keeps_faint_tails_attached_to_confident_cores():
+    prob = np.zeros((128, 128), np.uint8)
+    prob[40:50, 10:40] = 250  # confident core
+    prob[40:50, 40:90] = 80  # faint tail (0.31) touching it
+    prob[100:110, 10:60] = 80  # faint blob touching nothing confident
+    _, areas, boxes = instances(prob, threshold=0.5, min_area=10)
+    assert len(areas) == 1 and areas[0] == 300  # single threshold: core only
+    _, areas, boxes = instances(prob, threshold=0.5, min_area=10, low=0.3)
+    assert len(areas) == 1 and areas[0] == 800 and tuple(boxes[0]) == (10, 40, 80, 10)  # tail included, blob not
+    assert instances(prob, threshold=0.5, min_area=10, low=0.6)[1].tolist() == [300]  # low >= threshold: ignored
+
+
+def test_select_renumbers_the_kept_instances():
+    labels = np.zeros((32, 32), np.int32)
+    labels[0:4, 0:8], labels[10:14, 0:4], labels[20:24, 0:12] = 1, 2, 3
+    areas, boxes = np.array([32, 16, 48]), np.array([[0, 0, 8, 4], [0, 10, 4, 4], [0, 20, 12, 4]])
+    new_labels, new_areas, new_boxes = select(labels, areas, boxes, np.array([True, False, True]))
+    assert new_areas.tolist() == [32, 48] and new_boxes.tolist() == [[0, 0, 8, 4], [0, 20, 12, 4]]
+    assert new_labels.max() == 2 and (new_labels[20:24, 0:12] == 2).all() and (new_labels[10:14, 0:4] == 0).all()
+    assert select(labels, areas, boxes, np.zeros(3, bool))[1].size == 0
+
+
+def test_component_filter_learns_to_drop_round_faint_blobs(dataset_dir):
+    """Long dark components match filaments; small round ones do not. The filter must tell them apart."""
+    root, all_masks = dataset_dir
+    masks = all_masks["20110130110334Ch.jpeg"]
+    image = cv2.imread(str(root / "20110130110334Ch.jpeg"), cv2.IMREAD_GRAYSCALE)
+    rng = np.random.default_rng(0)
+    tables, targets = [], []
+    for frame_idx in range(6):  # six "frames" on the same image with different fake predictions
+        prob = np.zeros(image.shape, np.uint8)
+        for m in masks:
+            prob[m > 0] = 230
+        for _ in range(6):  # round blobs the network hallucinated
+            cv2.circle(
+                prob, (int(rng.integers(600, 1400)), int(rng.integers(600, 1400))), int(rng.integers(8, 14)), 200, -1
+            )
+        labels, areas, boxes = instances(prob, threshold=0.5, min_area=50)
+        ctx = frame_context(f"2011012010553{frame_idx}Ch.jpeg", image, prob)
+        table = component_table(ctx, labels, boxes)
+        target = matched_by_any_annotator(
+            [instance_crops([mask_util.encode(np.asfortranarray(m)) for m in masks])], labels, areas
+        )
+        assert 0 < target.sum() < len(target)
+        tables.append(table)
+        targets.append(target)
+    table, target = pd.concat(tables, ignore_index=True), np.concatenate(targets)
+    assert trainable(target)
+    oof = out_of_fold_scores(table, target, n_splits=3)
+    assert oof[target].mean() > 0.7 > oof[~target].mean()
+    model = ComponentFilter(cutoff=0.5).fit(table, target)
+    assert (model.keep(table) == target).mean() > 0.9
+    subset = ["frame", "log_area", "elongation"]  # a filter on fewer features needs only those columns
+    assert ComponentFilter(features=subset[1:]).fit(table[subset], target).scores(table[subset]).shape == oof.shape
+    assert out_of_fold_scores(table[subset], target, n_splits=3, features=subset[1:]).shape == oof.shape
+    assert not trainable(np.ones(10, bool)) and not trainable(np.zeros(100, bool))
+
+
 def test_pick_device_refuses_the_cpu_on_kaggle(monkeypatch):
     """A GPU notebook that Kaggle put on a CPU machine stops at once instead of training for days."""
     from cnn_baseline.training import pick_device
@@ -146,3 +213,42 @@ def test_pick_device_refuses_the_cpu_on_kaggle(monkeypatch):
     monkeypatch.setenv("KAGGLE_KERNEL_RUN_TYPE", "Batch")
     with pytest.raises(RuntimeError, match="no GPU"):
         pick_device()
+
+
+def test_fold_files_hold_out_every_frame_once():
+    files = [f"2011{m:02d}{d:02d}000000Ch.jpeg" for m in range(1, 4) for d in range(1, 24)]  # 69 frames
+    folds = fold_files(files, 5, seed=0)
+    assert len(folds) == 5 and sorted(f for fold in folds for f in fold) == sorted(files)
+    assert {len(fold) for fold in folds} <= {13, 14}
+    assert folds == fold_files(list(reversed(files)), 5, seed=0)  # depends on the names, not their order
+    assert folds != fold_files(files, 5, seed=1)
+
+
+class _Brightness(torch.nn.Module):
+    """A 'network' whose logit is the first channel's brightness: it treats every orientation alike."""
+
+    def forward(self, x):
+        return 8 * (x[:, :1] - 0.5)
+
+
+class _Sideways(torch.nn.Module):
+    """A 'network' that looks one pixel to its left: its answer depends on how the frame is turned."""
+
+    def forward(self, x):
+        return 8 * (torch.roll(x[:, :1], 1, dims=-1) - 0.5)
+
+
+def test_predict_tta_turns_every_view_back():
+    rng = np.random.default_rng(0)
+    frame = torch.from_numpy(rng.random((2, 48, 64)).astype(np.float32))  # asymmetric, not square
+    plain, averaged = next(predict_tta(_Brightness(), [frame], device=torch.device("cpu")))
+    assert plain.shape == averaged.shape == (48, 64) and plain.dtype == averaged.dtype == np.uint8
+    assert np.abs(plain.astype(int) - averaged.astype(int)).max() <= 1  # all 8 views agree once turned back
+    assert np.array_equal(plain, next(predict(_Brightness(), [frame], device=torch.device("cpu"))))
+
+    sideways = _Sideways()
+    plain, averaged = next(predict_tta(sideways, [frame], device=torch.device("cpu")))
+    assert np.array_equal(plain, next(predict(sideways, [frame], device=torch.device("cpu"))))
+    assert np.abs(plain.astype(int) - averaged.astype(int)).max() > 10  # its answer depends on the view
+    _, single = next(predict_tta(sideways, [frame], device=torch.device("cpu"), views=1))
+    assert np.array_equal(single, plain)
