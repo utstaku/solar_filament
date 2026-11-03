@@ -8,6 +8,16 @@
 # `segformer_test_fold{k}.npz`, `segformer_fold{k}.pt`, `segformer_folds.json`, `segformer_report.json`.
 
 # %%
+import subprocess
+import sys
+
+# Pin the model implementations across local checks and the Kaggle runtime.
+subprocess.run(
+    [sys.executable, "-m", "pip", "install", "--quiet", "segmentation-models-pytorch==0.5.0", "timm==1.0.29"],
+    check=True,
+)
+
+# %%
 from zoo.experiment import run
 
 run("segformer")

@@ -8,6 +8,16 @@
 # `swin_unet_test_fold{k}.npz`, `swin_unet_fold{k}.pt`, `swin_unet_folds.json`, `swin_unet_report.json`.
 
 # %%
+import subprocess
+import sys
+
+# Pin the model implementations across local checks and the Kaggle runtime.
+subprocess.run(
+    [sys.executable, "-m", "pip", "install", "--quiet", "segmentation-models-pytorch==0.5.0", "timm==1.0.29"],
+    check=True,
+)
+
+# %%
 from zoo.experiment import run
 
 run("swin_unet")
