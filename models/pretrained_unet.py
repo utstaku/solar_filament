@@ -7,6 +7,8 @@ from torch import nn
 ENCODERS = {
     "efficientnet_b3": "tu-efficientnet_b3.ra2_in1k",
     "convnext_tiny": "tu-convnext_tiny.fb_in1k",
+    # keeps a 1/4-resolution branch through every stage instead of only downsampling, for thin structures
+    "hrnet_w18": "tu-hrnet_w18.ms_aug_in1k",
 }
 
 
@@ -29,3 +31,7 @@ class PretrainedUNet(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.net((x - 0.449) / 0.226)
+
+    def pretrained_parameters(self):
+        """The ImageNet-initialised part, trained with a smaller learning rate than the decoder."""
+        return self.net.encoder.parameters()

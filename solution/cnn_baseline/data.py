@@ -42,19 +42,26 @@ def channels(image: np.ndarray) -> np.ndarray:
     return np.stack([image, flatten(image)]).astype(np.float32) / 255.0
 
 
+def annotator_masks(annotations: Annotations, file_name: str) -> np.ndarray:
+    """bool (A, H, W): the filaments of each of the frame's A annotation sets (an empty set gives an empty mask)."""
+    per_annotator = annotations.rles_for_file(file_name)
+    if not per_annotator:
+        raise KeyError(f"no annotations for {file_name}")
+    masks = [mask_util.decode(rles).any(axis=2) if rles else None for rles in per_annotator]
+    shape = next(m.shape for m in masks if m is not None)
+    return np.stack([m if m is not None else np.zeros(shape, bool) for m in masks])
+
+
 def soft_target(annotations: Annotations, file_name: str) -> np.ndarray:
     """float32 (H, W) in [0, 1]: the fraction of annotators who marked each pixel as filament.
 
     Up to three annotators labelled the same frame independently; averaging them keeps the
     disagreement as a soft label instead of arbitrarily trusting one of them.
     """
-    per_annotator = annotations.rles_for_file(file_name)
-    if not per_annotator:
-        raise KeyError(f"no annotations for {file_name}")
-    masks = [mask_util.decode(rles).any(axis=2) if rles else None for rles in per_annotator]
-    shape = next(m.shape for m in masks if m is not None)
-    stacked = np.stack([m if m is not None else np.zeros(shape, bool) for m in masks])
-    return stacked.mean(axis=0, dtype=np.float32)
+    return annotator_masks(annotations, file_name).mean(axis=0, dtype=np.float32)
+
+
+LABELS = ("mean", "sample")
 
 
 class FilamentFrames(Dataset):
@@ -64,6 +71,10 @@ class FilamentFrames(Dataset):
     (K, tile, tile) targets. Half of the tiles are centred on a filament pixel, because filaments
     cover 0.4 % of the disk and purely random tiles would mostly be empty. Evaluation mode returns
     the whole frame, (2, H, W) and (H, W).
+
+    `label` "mean" trains on the fraction of annotators marking each pixel; "sample" on one annotation set,
+    drawn anew each time the frame is visited. Averaging thins a filament only one of three annotators drew
+    to a 1/3 target; sampling keeps every annotator's filaments whole, with the disagreement in the draws.
     """
 
     def __init__(
@@ -74,20 +85,27 @@ class FilamentFrames(Dataset):
         tile: int = 512,
         tiles_per_frame: int = 4,
         train: bool = True,
+        label: str = "mean",
     ):
+        if label not in LABELS:
+            raise ValueError(f"label must be one of {LABELS}, not {label!r}")
         self.files, self.image_dir, self.annotations = files, Path(image_dir), annotations
-        self.tile, self.tiles_per_frame, self.train = tile, tiles_per_frame, train
+        self.tile, self.tiles_per_frame, self.train, self.label = tile, tiles_per_frame, train, label
 
     def __len__(self) -> int:
         return len(self.files)
 
     def __getitem__(self, index: int):
         x = channels(read_gray(self.image_dir / self.files[index]))
-        y = soft_target(self.annotations, self.files[index])
+        masks = annotator_masks(self.annotations, self.files[index])
         if not self.train:
-            return torch.from_numpy(x), torch.from_numpy(y)
+            return torch.from_numpy(x), torch.from_numpy(masks.mean(axis=0, dtype=np.float32))
         # torch seeds each DataLoader worker differently every epoch, so tiles differ across epochs
         rng = np.random.default_rng(int(torch.randint(0, 2**31, (1,))))
+        if self.label == "sample":
+            y = masks[rng.integers(len(masks))].astype(np.float32)
+        else:
+            y = masks.mean(axis=0, dtype=np.float32)
         tiles = [self.sample_tile(x, y, rng) for _ in range(self.tiles_per_frame)]
         return torch.from_numpy(np.stack([t[0] for t in tiles])), torch.from_numpy(np.stack([t[1] for t in tiles]))
 

@@ -43,6 +43,46 @@ def bce_dice_loss(logits: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
     return bce + dice.mean()
 
 
+def boundary_band(target: torch.Tensor, width: int) -> torch.Tensor:
+    """bool (B, H, W): pixels within `width` px of a place where the (soft) target changes value.
+
+    Morphological gradient by max pooling; on the mean of several annotators it covers each one's border.
+    """
+    t = target.unsqueeze(1).float()
+    k = 2 * width + 1
+    dilated = F.max_pool2d(t, k, stride=1, padding=width)
+    eroded = -F.max_pool2d(-t, k, stride=1, padding=width)
+    return (dilated - eroded).squeeze(1) > 0
+
+
+def boundary_bce_dice_loss(
+    logits: torch.Tensor, target: torch.Tensor, weight: float = 4.0, width: int = 3
+) -> torch.Tensor:
+    """`bce_dice_loss` with the BCE of pixels near a filament's border counted `1 + weight` times.
+
+    Near misses (IoU just under 0.5) lose their filament's border and faint ends, not its core; weighting
+    the border band moves the gradient there. The BCE is a weighted mean, so its scale stays comparable.
+    """
+    logits, target = logits.squeeze(1).float(), target.float()
+    w = 1 + weight * boundary_band(target, width).float()
+    bce = (F.binary_cross_entropy_with_logits(logits, target, reduction="none") * w).sum() / w.sum()
+    prob = torch.sigmoid(logits)
+    intersection = (prob * target).sum(dim=(1, 2))
+    dice = 1 - (2 * intersection + 1) / (prob.sum(dim=(1, 2)) + target.sum(dim=(1, 2)) + 1)
+    return bce + dice.mean()
+
+
+def parameter_groups(model: nn.Module, lr: float, pretrained_lr: float | None) -> list[dict]:
+    """One group at `lr`, or -- for a model with `pretrained_parameters()` and a `pretrained_lr` -- the
+    pretrained part at `pretrained_lr` and the rest (decoder, head) at `lr`."""
+    if pretrained_lr is None or not hasattr(model, "pretrained_parameters"):
+        return [{"params": list(model.parameters()), "lr": lr}]
+    pretrained = list(model.pretrained_parameters())
+    ids = {id(p) for p in pretrained}
+    rest = [p for p in model.parameters() if id(p) not in ids]
+    return [{"params": pretrained, "lr": pretrained_lr}, {"params": rest, "lr": lr}]
+
+
 def fit(
     model: nn.Module,
     loader: DataLoader,
@@ -50,12 +90,21 @@ def fit(
     lr: float = 1e-3,
     device: torch.device | None = None,
     log=print,
+    loss=bce_dice_loss,
+    pretrained_lr: float | None = None,
 ) -> list[float]:
-    """AdamW + one-cycle schedule, mixed precision on CUDA. Returns the mean loss of each epoch."""
+    """AdamW + one-cycle schedule, mixed precision on CUDA. Returns the mean loss of each epoch.
+
+    `loss(logits, target)` defaults to BCE + Dice; `pretrained_lr` sets a smaller peak learning rate for the
+    pretrained encoder of a model that has one (see `parameter_groups`).
+    """
     device = device or pick_device()
     model.to(device)
-    optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=1e-4)
-    schedule = torch.optim.lr_scheduler.OneCycleLR(optimizer, max_lr=lr, total_steps=epochs * len(loader))
+    groups = parameter_groups(model, lr, pretrained_lr)
+    optimizer = torch.optim.AdamW(groups, lr=lr, weight_decay=1e-4)
+    schedule = torch.optim.lr_scheduler.OneCycleLR(
+        optimizer, max_lr=[g["lr"] for g in groups], total_steps=epochs * len(loader)
+    )
     use_amp = device.type == "cuda"
     scaler = torch.amp.GradScaler(enabled=use_amp)
     history = []
@@ -65,13 +114,13 @@ def fit(
         for x, y in loader:
             x, y = x.to(device, non_blocking=True), y.to(device, non_blocking=True)
             with torch.autocast(device_type=device.type, dtype=torch.float16, enabled=use_amp):
-                loss = bce_dice_loss(model(x), y)
+                value = loss(model(x), y)
             optimizer.zero_grad(set_to_none=True)
-            scaler.scale(loss).backward()
+            scaler.scale(value).backward()
             scaler.step(optimizer)
             scaler.update()
             schedule.step()
-            total, steps = total + loss.item(), steps + 1
+            total, steps = total + value.item(), steps + 1
         history.append(total / max(steps, 1))
         log(
             f"epoch {epoch}/{epochs}  loss {history[-1]:.4f}  lr {schedule.get_last_lr()[0]:.2e}  {time.time() - start:.0f}s"
