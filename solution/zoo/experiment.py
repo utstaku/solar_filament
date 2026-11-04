@@ -105,6 +105,33 @@ def predict_tiled(model, frame: torch.Tensor, device, tile: int = TILE, stride: 
     return (total / weight).mul(255).round().to(torch.uint8).numpy()
 
 
+def train(name: str, train_files: list[str], train_dir, annotations, device, seed: int, log=print):
+    """The experiment's network trained on `train_files` with its loss and label: (model, epoch losses)."""
+    network, loss, label = EXPERIMENTS[name]
+    torch.manual_seed(seed)
+    random.seed(seed)
+    np.random.seed(seed)
+    loader = DataLoader(
+        FilamentFrames(train_files, train_dir, annotations, tile=TILE, tiles_per_frame=TILES_PER_FRAME, label=label),
+        batch_size=FRAMES_PER_BATCH,
+        shuffle=True,
+        num_workers=WORKERS,
+        collate_fn=collate_tiles,
+        worker_init_fn=worker_init,
+        pin_memory=device.type == "cuda",
+        persistent_workers=WORKERS > 0,
+        drop_last=True,
+    )
+    model = build(network)
+    if device.type == "cuda":
+        torch.cuda.reset_peak_memory_stats()
+    log(f"{sum(p.numel() for p in model.parameters()) / 1e6:.1f}M parameters")
+    history = fit(
+        model, loader, epochs=EPOCHS, lr=LR, device=device, log=log, loss=LOSSES[loss], pretrained_lr=PRETRAINED_LR
+    )
+    return model, history
+
+
 def run(name: str, folds_to_run: list[int] | None = None) -> dict:
     network, loss, label = EXPERIMENTS[name]
     t0 = time.time()
@@ -151,31 +178,10 @@ def run(name: str, folds_to_run: list[int] | None = None) -> dict:
             report["stopped_before_fold"] = k
             break
         start = time.time()
-        torch.manual_seed(SEED + k)
-        random.seed(SEED + k)
-        np.random.seed(SEED + k)
         held_out = folds[k]
         train_files = sorted(set(files) - set(held_out))
-        loader = DataLoader(
-            FilamentFrames(
-                train_files, train_dir, annotations, tile=TILE, tiles_per_frame=TILES_PER_FRAME, label=label
-            ),
-            batch_size=FRAMES_PER_BATCH,
-            shuffle=True,
-            num_workers=WORKERS,
-            collate_fn=collate_tiles,
-            worker_init_fn=worker_init,
-            pin_memory=device.type == "cuda",
-            persistent_workers=WORKERS > 0,
-            drop_last=True,
-        )
-        model = build(network)
-        if device.type == "cuda":
-            torch.cuda.reset_peak_memory_stats()
-        log(f"fold {k}: {sum(p.numel() for p in model.parameters()) / 1e6:.1f}M parameters, {len(train_files)} frames")
-        history = fit(
-            model, loader, epochs=EPOCHS, lr=LR, device=device, log=log, loss=LOSSES[loss], pretrained_lr=PRETRAINED_LR
-        )
+        log(f"fold {k}: {len(train_files)} frames")
+        model, history = train(name, train_files, train_dir, annotations, device, SEED + k, log)
         torch.save(model.state_dict(), out / f"{name}_fold{k}.pt")
         trained = time.time()
 
@@ -189,7 +195,7 @@ def run(name: str, folds_to_run: list[int] | None = None) -> dict:
         del oof
         test = {f: predict_tiled(model, frame(test_dir, f), device) for f in test_files}
         np.savez_compressed(out / f"{name}_test_fold{k}.npz", **test)
-        del test, model, loader
+        del test, model
         report["folds"].append(
             {
                 "fold": k,
@@ -216,4 +222,44 @@ def run(name: str, folds_to_run: list[int] | None = None) -> dict:
     report["elapsed_sec"] = round(time.time() - t0, 1)
     (out / f"{name}_report.json").write_text(json.dumps(report, indent=2))
     log("pooled quick PQ (A0 instances, no filter):", report["pooled_quick_pq"])
+    return report
+
+
+def run_full(name: str) -> dict:
+    """The experiment trained once on all training frames, for the submission: `<name>_full.pt`,
+    `<name>_test_full.npz` (its test maps, single model, made as the out-of-fold maps are), and
+    `<name>_full_report.json`. Same schedule and epochs as each fold, so 25 % more steps."""
+    t0 = time.time()
+
+    def log(*args):
+        print(f"[{time.time() - t0:5.0f}s]", *args, flush=True)
+
+    device = pick_device()
+    out = output_dir()
+    root = find_data_root()
+    train_dir, test_dir = root / "train" / "train_images", root / "test" / "test_images"
+    annotations = load_annotations(next((root / "train").glob("*.json")))
+    files = sorted(p.name for p in train_dir.iterdir())
+    test_files = sorted(p.name for p in test_dir.iterdir())
+    if QUICK:
+        files, test_files = files[:20], test_files[:3]
+    log(f"{name}: {EXPERIMENTS[name]} on all {len(files)} frames; {device}")
+    model, history = train(name, files, train_dir, annotations, device, SEED + N_FOLDS, log)
+    torch.save(model.state_dict(), out / f"{name}_full.pt")
+    trained = time.time()
+    test = {f: predict_tiled(model, torch.from_numpy(channels(read_gray(test_dir / f))), device) for f in test_files}
+    np.savez_compressed(out / f"{name}_test_full.npz", **test)
+    report = {
+        "name": name,
+        "experiment": EXPERIMENTS[name],
+        "quick": QUICK,
+        "train_frames": len(files),
+        "test_frames": len(test_files),
+        "loss": [round(v, 4) for v in history],
+        "train_sec": round(trained - t0, 1),
+        "predict_sec": round(time.time() - trained, 1),
+        "peak_gpu_gb": round(torch.cuda.max_memory_allocated() / 2**30, 2) if device.type == "cuda" else None,
+    }
+    (out / f"{name}_full_report.json").write_text(json.dumps(report, indent=2))
+    log(report)
     return report
