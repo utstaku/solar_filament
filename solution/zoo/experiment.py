@@ -51,6 +51,7 @@ EXPERIMENTS = {
     "hrnet": ("hrnet_w18", "bce_dice", "mean"),
     "segformer": ("segformer", "bce_dice", "mean"),
     "swin_unet": ("swin_unet", "bce_dice", "mean"),
+    "swin_unet_boundary": ("swin_unet", "boundary", "mean"),  # the two that helped, together
 }
 LOSSES = {"bce_dice": bce_dice_loss, "boundary": boundary_bce_dice_loss}
 
