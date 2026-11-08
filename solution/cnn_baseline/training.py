@@ -72,6 +72,47 @@ def boundary_bce_dice_loss(
     return bce + dice.mean()
 
 
+def soft_skeleton(image: torch.Tensor, iterations: int = 30) -> torch.Tensor:
+    """(B, H, W) skeleton of a (soft) mask by iterated min / max pooling, as clDice's soft-skeletonisation.
+
+    On a binary mask it is close to the morphological skeleton; on the mean of several annotators each
+    skeleton pixel keeps the fraction that drew it. `iterations` must reach half the widest filament (a 60 px wide blob needs 30).
+    """
+
+    def erode(t):
+        return torch.minimum(-F.max_pool2d(-t, (3, 1), 1, (1, 0)), -F.max_pool2d(-t, (1, 3), 1, (0, 1)))
+
+    def opened(t):
+        return F.max_pool2d(erode(t), 3, 1, 1)
+
+    t = image.unsqueeze(1).float()
+    skeleton = F.relu(t - opened(t))
+    for _ in range(iterations):
+        t = erode(t)
+        delta = F.relu(t - opened(t))
+        skeleton = skeleton + F.relu(delta - skeleton * delta)
+    return skeleton.squeeze(1)
+
+
+def skeleton_recall_bce_dice_loss(logits: torch.Tensor, target: torch.Tensor, weight: float = 1.0) -> torch.Tensor:
+    """`bce_dice_loss` plus `weight` x (1 - recall of the target's skeleton), as Skeleton Recall (Kirchhoff
+    et al., 2024).
+
+    A filament whose faint middle falls below 0.5 comes out in pieces or as a fragment; BCE and Dice barely
+    notice the few pixels of the gap, but they are a large share of the filament's centre line. The skeleton
+    is thickened to 3 px ("tubed") so a prediction a pixel off still covers it; tiles without filament add 0.
+    """
+    with torch.no_grad():
+        skeleton = F.max_pool2d(soft_skeleton(target).unsqueeze(1), 3, 1, 1).squeeze(1).clamp(max=1)
+        skeleton = skeleton * (target > 0)  # the tube stays inside the drawn filament
+    prob = torch.sigmoid(logits.squeeze(1).float())
+    length = skeleton.sum(dim=(1, 2))
+    recall = (prob * skeleton).sum(dim=(1, 2)) / length.clamp(min=1)
+    has_filament = (length > 0).float()
+    missed = ((1 - recall) * has_filament).sum() / has_filament.sum().clamp(min=1)
+    return bce_dice_loss(logits, target) + weight * missed
+
+
 def parameter_groups(model: nn.Module, lr: float, pretrained_lr: float | None) -> list[dict]:
     """One group at `lr`, or -- for a model with `pretrained_parameters()` and a `pretrained_lr` -- the
     pretrained part at `pretrained_lr` and the rest (decoder, head) at `lr`."""

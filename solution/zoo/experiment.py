@@ -21,7 +21,13 @@ import torch
 from torch.utils.data import DataLoader
 
 from cnn_baseline.data import FilamentFrames, channels, collate_tiles, fold_files, worker_init
-from cnn_baseline.training import bce_dice_loss, boundary_bce_dice_loss, fit, pick_device
+from cnn_baseline.training import (
+    bce_dice_loss,
+    boundary_bce_dice_loss,
+    fit,
+    pick_device,
+    skeleton_recall_bce_dice_loss,
+)
 from dataset.annotations import load_annotations
 from dataset.paths import find_data_root, output_dir
 from postprocess.instances import instances
@@ -52,8 +58,9 @@ EXPERIMENTS = {
     "segformer": ("segformer", "bce_dice", "mean"),
     "swin_unet": ("swin_unet", "bce_dice", "mean"),
     "swin_unet_boundary": ("swin_unet", "boundary", "mean"),  # the two that helped, together
+    "swin_unet_skeleton": ("swin_unet", "skeleton", "mean"),  # against filaments cut by faint stretches
 }
-LOSSES = {"bce_dice": bce_dice_loss, "boundary": boundary_bce_dice_loss}
+LOSSES = {"bce_dice": bce_dice_loss, "boundary": boundary_bce_dice_loss, "skeleton": skeleton_recall_bce_dice_loss}
 
 
 def build(network: str) -> torch.nn.Module:

@@ -252,3 +252,21 @@ def test_predict_tta_turns_every_view_back():
     assert np.abs(plain.astype(int) - averaged.astype(int)).max() > 10  # its answer depends on the view
     _, single = next(predict_tta(sideways, [frame], device=torch.device("cpu"), views=1))
     assert np.array_equal(single, plain)
+
+
+def test_skeleton_recall_punishes_a_gap_across_a_filament():
+    from cnn_baseline.training import skeleton_recall_bce_dice_loss, soft_skeleton
+
+    target = torch.zeros(1, 64, 128)
+    target[0, 26:38, 10:118] = 1
+    skeleton = soft_skeleton(target)[0] > 0.5
+    assert skeleton.any() and set(torch.nonzero(skeleton)[:, 0].tolist()) <= {31, 32}
+    whole = (target * 2 - 1).unsqueeze(1) * 8
+    cut = whole.clone()
+    cut[..., 60:70] = -8
+    extra = [skeleton_recall_bce_dice_loss(x, target) - bce_dice_loss(x, target) for x in (whole, cut)]
+    assert extra[0] < 0.01 and extra[1] > 0.05
+    empty = torch.zeros(2, 32, 32)
+    assert torch.isclose(
+        skeleton_recall_bce_dice_loss(empty.unsqueeze(1) - 8, empty), bce_dice_loss(empty.unsqueeze(1) - 8, empty)
+    )
