@@ -21,7 +21,7 @@
 # %%
 import json
 import time
-from datetime import datetime
+from datetime import UTC, datetime
 
 import numpy as np
 import pandas as pd
@@ -173,7 +173,7 @@ print(json.dumps(quantiles, indent=1))
 
 # %%
 def when(f: str) -> float:
-    return datetime.strptime(f[:14], "%Y%m%d%H%M%S").timestamp() / 86400
+    return datetime.strptime(f[:14], "%Y%m%d%H%M%S").replace(tzinfo=UTC).timestamp() / 86400
 
 
 train_t = np.array([when(f) for f in files])
