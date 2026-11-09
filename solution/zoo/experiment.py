@@ -15,6 +15,7 @@ import json
 import os
 import random
 import time
+from functools import partial
 
 import numpy as np
 import torch
@@ -59,8 +60,14 @@ EXPERIMENTS = {
     "swin_unet": ("swin_unet", "bce_dice", "mean"),
     "swin_unet_boundary": ("swin_unet", "boundary", "mean"),  # the two that helped, together
     "swin_unet_skeleton": ("swin_unet", "skeleton", "mean"),  # against filaments cut by faint stretches
+    "swin_unet_skeleton_majority": ("swin_unet", "skeleton_majority", "mean"),  # the same, on agreed lines
 }
-LOSSES = {"bce_dice": bce_dice_loss, "boundary": boundary_bce_dice_loss, "skeleton": skeleton_recall_bce_dice_loss}
+LOSSES = {
+    "bce_dice": bce_dice_loss,
+    "boundary": boundary_bce_dice_loss,
+    "skeleton": skeleton_recall_bce_dice_loss,
+    "skeleton_majority": partial(skeleton_recall_bce_dice_loss, weight=0.2, level=0.5),
+}
 
 
 def build(network: str) -> torch.nn.Module:

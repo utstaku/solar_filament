@@ -94,17 +94,25 @@ def soft_skeleton(image: torch.Tensor, iterations: int = 30) -> torch.Tensor:
     return skeleton.squeeze(1)
 
 
-def skeleton_recall_bce_dice_loss(logits: torch.Tensor, target: torch.Tensor, weight: float = 1.0) -> torch.Tensor:
+def skeleton_recall_bce_dice_loss(
+    logits: torch.Tensor, target: torch.Tensor, weight: float = 1.0, level: float | None = None
+) -> torch.Tensor:
     """`bce_dice_loss` plus `weight` x (1 - recall of the target's skeleton), as Skeleton Recall (Kirchhoff
     et al., 2024).
 
     A filament whose faint middle falls below 0.5 comes out in pieces or as a fragment; BCE and Dice barely
     notice the few pixels of the gap, but they are a large share of the filament's centre line. The skeleton
     is thickened to 3 px ("tubed") so a prediction a pixel off still covers it; tiles without filament add 0.
+
+    With `level`, the skeleton is that of the pixels at least that share of the annotators drew (0.5: a
+    majority) instead of the soft target's: recall rewards p = 1 on every skeleton pixel, so a skeleton of
+    filaments one annotator in three drew pulls the map up where they disagree (`zoo/swin_unet_skeleton`).
     """
     with torch.no_grad():
-        skeleton = F.max_pool2d(soft_skeleton(target).unsqueeze(1), 3, 1, 1).squeeze(1).clamp(max=1)
-        skeleton = skeleton * (target > 0)  # the tube stays inside the drawn filament
+        drawn = target >= level if level is not None else target > 0
+        source = drawn.float() if level is not None else target
+        skeleton = F.max_pool2d(soft_skeleton(source).unsqueeze(1), 3, 1, 1).squeeze(1).clamp(max=1)
+        skeleton = skeleton * drawn  # the tube stays inside the drawn filament
     prob = torch.sigmoid(logits.squeeze(1).float())
     length = skeleton.sum(dim=(1, 2))
     recall = (prob * skeleton).sum(dim=(1, 2)) / length.clamp(min=1)
