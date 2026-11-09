@@ -61,7 +61,10 @@ EXPERIMENTS = {
     "swin_unet_boundary": ("swin_unet", "boundary", "mean"),  # the two that helped, together
     "swin_unet_skeleton": ("swin_unet", "skeleton", "mean"),  # against filaments cut by faint stretches
     "swin_unet_skeleton_majority": ("swin_unet", "skeleton_majority", "mean"),  # the same, on agreed lines
+    "swin_unet_boundary_seed1": ("swin_unet", "boundary", "mean"),  # a second seed, for a seed ensemble
 }
+# training seeds start here instead of SEED (the folds stay those of SEED, so out-of-fold maps line up)
+TRAIN_SEEDS = {"swin_unet_boundary_seed1": 100}
 LOSSES = {
     "bce_dice": bce_dice_loss,
     "boundary": boundary_bce_dice_loss,
@@ -178,6 +181,7 @@ def run(name: str, folds_to_run: list[int] | None = None) -> dict:
         "label": label,
         "quick": QUICK,
         "seed": SEED,
+        "train_seed": TRAIN_SEEDS.get(name, SEED),
         "tile": TILE,
         "stride": STRIDE,
         "epochs": EPOCHS,
@@ -196,7 +200,7 @@ def run(name: str, folds_to_run: list[int] | None = None) -> dict:
         held_out = folds[k]
         train_files = sorted(set(files) - set(held_out))
         log(f"fold {k}: {len(train_files)} frames")
-        model, history = train(name, train_files, train_dir, annotations, device, SEED + k, log)
+        model, history = train(name, train_files, train_dir, annotations, device, TRAIN_SEEDS.get(name, SEED) + k, log)
         torch.save(model.state_dict(), out / f"{name}_fold{k}.pt")
         trained = time.time()
 
@@ -259,7 +263,7 @@ def run_full(name: str) -> dict:
     if QUICK:
         files, test_files = files[:20], test_files[:3]
     log(f"{name}: {EXPERIMENTS[name]} on all {len(files)} frames; {device}")
-    model, history = train(name, files, train_dir, annotations, device, SEED + N_FOLDS, log)
+    model, history = train(name, files, train_dir, annotations, device, TRAIN_SEEDS.get(name, SEED) + N_FOLDS, log)
     torch.save(model.state_dict(), out / f"{name}_full.pt")
     trained = time.time()
     test = {f: predict_tiled(model, torch.from_numpy(channels(read_gray(test_dir / f))), device) for f in test_files}
