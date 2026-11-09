@@ -1,4 +1,4 @@
-# kaggle: kernel_sources={user}/filament-zoo-swin-unet,{user}/filament-zoo-swin-unet-boundary,{user}/filament-zoo-swin-unet-skeleton-majority,{user}/filament-zoo-boundary-bce,{user}/filament-zoo-hrnet
+# kaggle: kernel_sources={user}/filament-zoo-swin-unet,{user}/filament-zoo-swin-unet-boundary,{user}/filament-zoo-swin-unet-skeleton-majority,{user}/filament-zoo-boundary-bce,{user}/filament-zoo-hrnet,{user}/filament-zoo-swin-unet-boundary-seed1
 # %% [markdown]
 # # Averaging the maps of several zoo runs: does an ensemble beat the best single model?
 #
