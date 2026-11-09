@@ -1,4 +1,4 @@
-# kaggle: kernel_sources={user}/filament-zoo-baseline,{user}/filament-zoo-boundary-bce,{user}/filament-zoo-annotator-sampling,{user}/filament-zoo-edgeattnet,{user}/filament-zoo-hrnet,{user}/filament-zoo-segformer,{user}/filament-zoo-swin-unet,{user}/filament-zoo-swin-unet-boundary,{user}/filament-zoo-swin-unet-skeleton
+# kaggle: kernel_sources={user}/filament-zoo-baseline,{user}/filament-zoo-boundary-bce,{user}/filament-zoo-annotator-sampling,{user}/filament-zoo-edgeattnet,{user}/filament-zoo-hrnet,{user}/filament-zoo-segformer,{user}/filament-zoo-swin-unet,{user}/filament-zoo-swin-unet-boundary,{user}/filament-zoo-swin-unet-skeleton,{user}/filament-zoo-swin-unet-skeleton-majority
 # %% [markdown]
 # # Zoo comparison: every experiment's 707 out-of-fold maps through the same post-processing
 #
