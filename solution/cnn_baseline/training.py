@@ -141,11 +141,14 @@ def fit(
     log=print,
     loss=bce_dice_loss,
     pretrained_lr: float | None = None,
+    ema: float | None = None,
 ) -> list[float]:
     """AdamW + one-cycle schedule, mixed precision on CUDA. Returns the mean loss of each epoch.
 
     `loss(logits, target)` defaults to BCE + Dice; `pretrained_lr` sets a smaller peak learning rate for the
-    pretrained encoder of a model that has one (see `parameter_groups`).
+    pretrained encoder of a model that has one (see `parameter_groups`). With `ema` (a decay such as 0.998),
+    an exponential moving average of the weights and buffers is kept after every step and copied into `model`
+    at the end, so the model returned is the average of its last ~1 / (1 - ema) steps.
     """
     device = device or pick_device()
     model.to(device)
@@ -156,6 +159,13 @@ def fit(
     )
     use_amp = device.type == "cuda"
     scaler = torch.amp.GradScaler(enabled=use_amp)
+    average = (
+        torch.optim.swa_utils.AveragedModel(
+            model, multi_avg_fn=torch.optim.swa_utils.get_ema_multi_avg_fn(ema), use_buffers=True
+        )
+        if ema
+        else None
+    )
     history = []
     for epoch in range(1, epochs + 1):
         model.train()
@@ -169,11 +179,15 @@ def fit(
             scaler.step(optimizer)
             scaler.update()
             schedule.step()
+            if average is not None:
+                average.update_parameters(model)
             total, steps = total + value.item(), steps + 1
         history.append(total / max(steps, 1))
         log(
             f"epoch {epoch}/{epochs}  loss {history[-1]:.4f}  lr {schedule.get_last_lr()[0]:.2e}  {time.time() - start:.0f}s"
         )
+    if average is not None:
+        model.load_state_dict(average.module.state_dict())
     return history
 
 

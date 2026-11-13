@@ -62,9 +62,12 @@ EXPERIMENTS = {
     "swin_unet_skeleton": ("swin_unet", "skeleton", "mean"),  # against filaments cut by faint stretches
     "swin_unet_skeleton_majority": ("swin_unet", "skeleton_majority", "mean"),  # the same, on agreed lines
     "swin_unet_boundary_seed1": ("swin_unet", "boundary", "mean"),  # a second seed, for a seed ensemble
+    "swin_unet_boundary_ema": ("swin_unet", "boundary", "mean"),  # one model like the mean of several
 }
 # training seeds start here instead of SEED (the folds stay those of SEED, so out-of-fold maps line up)
 TRAIN_SEEDS = {"swin_unet_boundary_seed1": 100}
+# weights averaged over training (`fit`'s `ema` decay; 0.998 ~ the last 500 steps, 3.5 of 16 epochs)
+EMA = {"swin_unet_boundary_ema": 0.998}
 LOSSES = {
     "bce_dice": bce_dice_loss,
     "boundary": boundary_bce_dice_loss,
@@ -145,7 +148,15 @@ def train(name: str, train_files: list[str], train_dir, annotations, device, see
         torch.cuda.reset_peak_memory_stats()
     log(f"{sum(p.numel() for p in model.parameters()) / 1e6:.1f}M parameters")
     history = fit(
-        model, loader, epochs=EPOCHS, lr=LR, device=device, log=log, loss=LOSSES[loss], pretrained_lr=PRETRAINED_LR
+        model,
+        loader,
+        epochs=EPOCHS,
+        lr=LR,
+        device=device,
+        log=log,
+        loss=LOSSES[loss],
+        pretrained_lr=PRETRAINED_LR,
+        ema=EMA.get(name),
     )
     return model, history
 
@@ -182,6 +193,7 @@ def run(name: str, folds_to_run: list[int] | None = None) -> dict:
         "quick": QUICK,
         "seed": SEED,
         "train_seed": TRAIN_SEEDS.get(name, SEED),
+        "ema": EMA.get(name),
         "tile": TILE,
         "stride": STRIDE,
         "epochs": EPOCHS,

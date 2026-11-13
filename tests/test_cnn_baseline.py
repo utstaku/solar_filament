@@ -270,3 +270,20 @@ def test_skeleton_recall_punishes_a_gap_across_a_filament():
     assert torch.isclose(
         skeleton_recall_bce_dice_loss(empty.unsqueeze(1) - 8, empty), bce_dice_loss(empty.unsqueeze(1) - 8, empty)
     )
+
+
+def test_fit_with_ema_returns_the_averaged_weights():
+    """The same run with `ema` ends on other weights than without (their average), after the same steps."""
+    from cnn_baseline.training import fit
+
+    x, y = torch.rand(8, 2, 16, 16), (torch.rand(8, 16, 16) > 0.5).float()
+    loader = torch.utils.data.DataLoader(torch.utils.data.TensorDataset(x, y), batch_size=4)
+    runs = {}
+    for ema in (None, 0.9):
+        torch.manual_seed(0)
+        model = torch.nn.Conv2d(2, 1, 3, padding=1)
+        history = fit(model, loader, epochs=3, device=torch.device("cpu"), log=lambda *a: None, ema=ema)
+        runs[ema] = (history, model.weight.detach().clone())
+    assert runs[None][0] == runs[0.9][0]
+    assert not torch.allclose(runs[None][1], runs[0.9][1])
+    assert torch.isfinite(runs[0.9][1]).all()
