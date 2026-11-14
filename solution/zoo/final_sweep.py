@@ -1,4 +1,4 @@
-# kaggle: kernel_sources={user}/filament-zoo-swin-unet-boundary,{user}/filament-zoo-swin-unet-boundary-full,{user}/filament-zoo-tta
+# kaggle: kernel_sources={user}/filament-zoo-swin-unet-boundary,{user}/filament-zoo-swin-unet-boundary-full,{user}/filament-zoo-tta,{user}/filament-zoo-swin-unet-boundary-ema
 # %% [markdown]
 # # One model, steadier maps, thinner masks: the two together
 #
@@ -8,6 +8,9 @@
 #
 # - candidates from A0 hysteresis (0.5 / 0.3) or a higher one (0.6 / 0.45), joined, filter fitted out of fold;
 # - each kept filament cut at t = 0.3 (the submitted masks) ... 0.7.
+#
+# Also the plain maps of `swin_unet_boundary_ema` (the same training with its weights averaged, `EMA`), to see
+# whether averaging weights does what averaging views did.
 #
 # `delta`: PQ minus the submitted setting's (plain maps, A0, t = 0.3) on the same frames, with a 95 % interval
 # from resampling frames. Submissions of the 8-view maps at a few cuts: `submission_tta8_<hyst>_cut<t>.csv`.
@@ -40,7 +43,7 @@ from scoring.metric import PanopticQuality, instance_crops
 from zoo.experiment import N_FOLDS
 
 NAME = "swin_unet_boundary"
-MAPS = {"plain": NAME, "tta8": f"{NAME}_tta8"}
+MAPS = {"plain": NAME, "tta8": f"{NAME}_tta8", "ema": f"{NAME}_ema"}
 HYSTERESIS = {"a0": A0, "h60": {**A0, "threshold": 0.6, "low": 0.45}}
 MASK_CUTS = [0.3, 0.4, 0.5, 0.55, 0.6, 0.65, 0.7]
 SUBMIT = [("tta8", "a0", 0.5), ("tta8", "a0", 0.6), ("tta8", "h60", 0.6)]
@@ -124,7 +127,7 @@ table.to_csv(output_dir() / "final_sweep.csv", index=False)
 
 # %%
 test_files = sorted(p.name for p in test_dir.iterdir())
-test_maps = {kind: np.load(find_input(f"{prefix}_test_full.npz")) for kind, prefix in MAPS.items()}
+test_maps = {kind: np.load(find_input(f"{MAPS[kind]}_test_full.npz")) for kind in {k for k, _, _ in SUBMIT}}
 for kind, hyst, t in SUBMIT:
     post, sub = posts[kind, hyst], []
     for f in test_files:
