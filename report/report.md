@@ -131,6 +131,14 @@ growing of masks and lower hysteresis thresholds did not help. A strict keep rul
 notebook cost **−0.041** on our maps (Fig. 1a): keep rules are tied to a model's calibration and do not
 transfer between models.
 
+**A cutoff for sparser test labels (negative).** The public scores fit test labels in which each filament
+is present only with probability r ≈ 0.72–0.76 (§2). By the break-even rule, a kept component is then worth
+less on test, so the filter should keep fewer. Choosing the cutoff by the expected public PQ at r instead of
+by OOF PQ does move it, from 0.40 to 0.45–0.475 (6.8 → 6.1–6.4 filaments per frame). The expected public gain,
+however, is only +0.0005 to +0.0009: the curve is flat between 0.40 and 0.50, far below the leaderboard's
+±0.02 resolution (`sparse_cutoff_lab.py`). The submitted cutoff is therefore already near-optimal for the
+test labels as well.
+
 # Physics analyses: what the errors tell us about the data
 
 **Where the misses are.** 75 % of the annotated pixels that a near miss leaves out have network
