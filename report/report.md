@@ -106,8 +106,9 @@ Post-processing: hysteresis 0.6/0.45, join and filter (§5), then each kept fila
 p ≥ 0.6, +0.006: the network's 0.3 contour is wider than the annotators' (median kept area 1,388 → 1,205 px).
 OOF PQ 0.4223 → **0.4357** [+0.009, +0.018], public LB 0.37. In a ten-model zoo on the same folds and
 post-processing, the Swin encoder (0.4216) and the boundary loss (U-Net 0.3983 → 0.4045) were the two gains;
-HRNet-W18 0.397, SegFormer 0.382, Skeleton Recall loss 0.415 and weight averaging (EMA) did not help, and a second
-seed (+0.004) was not worth doubling the model.
+HRNet-W18 0.397, SegFormer 0.382, Skeleton Recall loss 0.415 and weight averaging (EMA) did not help, a second
+seed (+0.004) was not worth doubling the model, and averaging with the CNN U-Net's map lowered PQ at every weight
+(w = 0.8: −0.004 [−0.007, −0.000]).
 
 # Post-processing: from a probability map to filaments
 
@@ -183,7 +184,8 @@ On the 106-frame validation split (CNN U-Net + A0, `outputs/cnn-baseline-predict
 PQ 0.378 = SQ 0.665 × RQ 0.568. The median IoU of matched filaments is 0.667, and the median predicted/true
 area ratio is 1.07 (masks are not systematically too thin or too thick). On the 707 OOF frames, joining
 lowered the fragment count while keeping merges rare: TP 4,674 → 4,782 and FP 3,244 → 3,130 for A0 →
-join-then-filter (`final_join.py`). **[TO ADD: the same table for the final Swin pipeline.]**
+join-then-filter (`final_join.py`). With the final Swin pipeline (§4.2) on the 707 OOF frames: TP 5,240,
+FP 2,846, FN 2,959, PQ 0.4357 = SQ 0.677 × RQ 0.644.
 
 # Limitations
 
