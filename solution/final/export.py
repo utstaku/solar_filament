@@ -7,26 +7,26 @@
 #
 # - `swin_unet_boundary_full_fp16.pt`: the Swin U-Net trained on all 707 frames (`zoo/swin_unet_boundary_full.py`),
 #   its weights stored as float16 so the file stays under GitHub's 100 MB limit (inference runs in float16 anyway);
-# - `final_postprocess.pkl`: the fitted post-processing (`postprocess.pipeline.Postprocess`): hysteresis 0.6 / 0.45,
-#   join, the component filter fitted on the 707 out-of-fold 8-view maps (`zoo/tta.py`) with its out-of-fold
-#   cutoff, and the kept filaments cut at probability 0.6 (`zoo/final_sweep.py`, OOF PQ 0.4357);
-# - `final_config.json`: what was used, with the out-of-fold PQ before the cut.
+# - `final_filter_table.csv`: the component filter's training set, one row per candidate (hysteresis 0.6 / 0.45,
+#   joined) of the 707 out-of-fold 8-view maps (`zoo/tta.py`): its features and whether it matched an annotator;
+# - `final_config.json`: the post-processing (`postprocess.pipeline.Postprocess`): hysteresis, join, the filter's
+#   out-of-fold cutoff and the mask cut at 0.6 (`zoo/final_sweep.py`, OOF PQ 0.4357).
+#
+# The pipeline fits the filter (gradient boosting with a fixed seed, a few seconds) from the table rather than
+# unpickling it: a pickled scikit-learn model only loads in the version that wrote it.
 
 # %%
-import dataclasses
 import json
-import pickle
 
 import numpy as np
-import sklearn
+import pandas as pd
 import torch
 
 from dataset.annotations import load_annotations
 from dataset.paths import find_data_root, find_input, output_dir
-from postprocess import pipeline
-from postprocess.filtering import frame_context
-from postprocess.pipeline import A0
-from postprocess.tuning import pq_of
+from postprocess.filtering import FEATURES, component_table, frame_context, matched_by_any_annotator, out_of_fold_scores
+from postprocess.pipeline import A0, candidates
+from postprocess.tuning import best_cutoff, pq_of
 from preprocess.images import read_gray
 from scoring.metric import instance_crops
 from zoo.experiment import N_FOLDS
@@ -51,22 +51,24 @@ for k in range(N_FOLDS):
 files = sorted(maps)
 contexts = {f: frame_context(f, read_gray(train_dir / f), maps[f]) for f in files}
 truth = {f: [instance_crops(rles) for rles in annotations.rles_for_file(f)] for f in files}
-post, oof = pipeline.fit(contexts, truth, files, params=PARAMS)
-post = dataclasses.replace(post, mask_cut=MASK_CUT)
-with open(output_dir() / "final_postprocess.pkl", "wb") as f:
-    pickle.dump(post, f)
+# as `pipeline.fit` does: candidates, their features and targets, the cutoff with the best out-of-fold PQ
+raw = {f: candidates(contexts[f], PARAMS) for f in files}
+table = pd.concat(
+    [component_table(contexts[f], raw[f][0], raw[f][2]) for f in files if len(raw[f][1])], ignore_index=True
+)
+target = np.concatenate([matched_by_any_annotator(truth[f], raw[f][0], raw[f][1]) for f in files])
+cutoff, terms = best_cutoff(out_of_fold_scores(table, target), raw, table, truth, files)
+table[FEATURES].assign(target=target.astype(int)).to_csv(output_dir() / "final_filter_table.csv", index=False)
 
 config = {
     "model": f"{NAME}_full_fp16.pt",
     "views": VIEWS,
     "params": PARAMS,
-    "join": post.join,
-    "filter_cutoff": post.filter.cutoff,
+    "join": True,
+    "filter_cutoff": cutoff,
     "mask_cut": MASK_CUT,
-    "oof_pq_before_cut": round(pq_of(oof.terms), 4),
-    "kept_per_frame": round(oof.kept_per_frame, 2),
-    "scikit_learn": sklearn.__version__,
-    "torch": torch.__version__,
+    "oof_pq_before_cut": round(pq_of(terms), 4),
+    "candidates": len(table),
 }
 print(json.dumps(config, indent=2))
 (output_dir() / "final_config.json").write_text(json.dumps(config, indent=2))

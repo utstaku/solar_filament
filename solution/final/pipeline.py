@@ -2,9 +2,11 @@
 # %% [markdown]
 # # Final submission: test frames to `submission.csv`, from the stored weights
 #
-# The whole pipeline of our final submission, with nothing retrained. It loads two files from `weights/`
-# in the repository (written by `final/export.py`): the Swin U-Net trained on all 707 training frames, and
-# the fitted post-processing.
+# The whole pipeline of our final submission, with no network retrained. It loads three files from `weights/`
+# in the repository (written by `final/export.py`): the Swin U-Net trained on all 707 training frames, the
+# post-processing settings, and the component filter's training table (the filter, a small gradient boosting
+# with a fixed seed, is fitted from it in a few seconds; a pickled scikit-learn model would load only in the
+# version that wrote it).
 #
 # 1. **Input**: each 2048 x 2048 test frame becomes two channels, the frame and its limb-darkening-corrected copy
 #    (`cnn_baseline.data.channels`).
@@ -33,7 +35,7 @@ subprocess.run(
 )
 
 # %%
-import pickle
+import json
 import time
 from pathlib import Path
 
@@ -45,14 +47,16 @@ from cnn_baseline.data import channels
 from cnn_baseline.training import pick_device
 from dataset.paths import find_data_root, find_input, output_dir
 from models.swin_unet import SwinUNet
-from postprocess.filtering import frame_context
+from postprocess.filtering import FEATURES, ComponentFilter, frame_context
+from postprocess.pipeline import Postprocess
 from preprocess.images import read_gray
 from scoring import rle, submission
 from scoring.check import check
 from zoo.experiment import TILE, predict_views
 
 MODEL = "swin_unet_boundary_full_fp16.pt"
-POSTPROCESS = "final_postprocess.pkl"
+CONFIG = "final_config.json"
+FILTER_TABLE = "final_filter_table.csv"
 SUBMITTED = "submission_tta8_h60_cut0.6.csv"  # the file sent to the leaderboard, to compare with
 T0 = time.time()
 
@@ -71,8 +75,14 @@ device = pick_device()
 model = SwinUNet(pretrained=False, tile=TILE)
 model.load_state_dict({k: v.float() for k, v in torch.load(stored(MODEL), map_location="cpu").items()})
 model.to(device).eval()
-with open(stored(POSTPROCESS), "rb") as f:
-    post = pickle.load(f)
+config = json.loads(stored(CONFIG).read_text())
+table = pd.read_csv(stored(FILTER_TABLE))
+post = Postprocess(
+    ComponentFilter(cutoff=config["filter_cutoff"]).fit(table[FEATURES], table["target"].to_numpy()),
+    params=config["params"],
+    join=config["join"],
+    mask_cut=config["mask_cut"],
+)
 log(f"model and post-processing loaded: {post.params}, cutoff {post.filter.cutoff}, mask cut {post.mask_cut}")
 
 # %% [markdown]
