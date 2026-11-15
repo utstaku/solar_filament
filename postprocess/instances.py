@@ -54,6 +54,19 @@ def select(labels: np.ndarray, areas: np.ndarray, boxes: np.ndarray, keep: np.nd
     return relabel[labels], areas[keep], boxes[keep]
 
 
+def cut(labels: np.ndarray, areas: np.ndarray, boxes: np.ndarray, prob: np.ndarray, threshold: float):
+    """The instances reduced to their pixels with `prob` >= threshold, renumbered; ones left under 30 px dropped.
+
+    Hysteresis decides which pixels belong together and which filaments exist; this decides their outline.
+    The network's 0.3 contour is wider than the annotators' (out of fold, cutting at 0.6 raised PQ by 0.006).
+    """
+    if not len(areas):
+        return labels, areas, boxes
+    labels = np.where(prob >= round(threshold * 255), labels, 0)
+    areas, boxes = label_stats(labels, len(areas))
+    return select(labels, areas, boxes, areas >= 30)
+
+
 def label_stats(labels: np.ndarray, n: int) -> tuple[np.ndarray, np.ndarray]:
     """(areas[n], boxes[n, 4] as x, y, w, h) of the instances 1..n of a label map (empty ones: area 0)."""
     ys, xs = np.nonzero(labels)

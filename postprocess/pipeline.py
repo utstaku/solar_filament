@@ -23,7 +23,7 @@ import pandas as pd
 
 from error_analysis.instances import FrameContext
 from postprocess.filtering import ComponentFilter, component_table, matched_by_any_annotator, out_of_fold_scores
-from postprocess.instances import instances, select
+from postprocess.instances import cut, instances, select
 from postprocess.joining import join_pairs, join_rule, pair_table
 from postprocess.tuning import best_cutoff
 from scoring.metric import InstanceCrop
@@ -52,12 +52,14 @@ class Postprocess:
     filter: ComponentFilter
     params: dict = field(default_factory=lambda: dict(A0))
     join: bool = True
+    mask_cut: float | None = None  # kept filaments reduced to their pixels with probability >= mask_cut
 
     def __call__(self, ctx: FrameContext):
         inst = candidates(ctx, self.params, self.join)
         if not len(inst[1]):
             return inst
-        return select(*inst, self.filter.keep(component_table(ctx, inst[0], inst[2])))
+        kept = select(*inst, self.filter.keep(component_table(ctx, inst[0], inst[2])))
+        return cut(*kept, ctx.prob, self.mask_cut) if self.mask_cut is not None else kept
 
 
 @dataclass

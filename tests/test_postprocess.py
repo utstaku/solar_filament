@@ -12,7 +12,7 @@ from postprocess.filtering import (
     out_of_fold_scores,
     trainable,
 )
-from postprocess.instances import instances, select
+from postprocess.instances import cut, instances, select
 from scoring.metric import instance_crops
 
 
@@ -69,3 +69,18 @@ def test_component_filter_learns_to_drop_round_faint_blobs(dataset_dir):  # noqa
     model = ComponentFilter(cutoff=0.5).fit(table, target)
     assert (model.keep(table) == target).mean() > 0.9
     assert not trainable(np.ones(10, bool)) and not trainable(np.zeros(100, bool))
+
+
+def test_cut_keeps_the_confident_pixels_and_drops_what_is_left_too_small():
+    labels = np.zeros((40, 40), np.int32)
+    labels[5:15, 5:35] = 1  # a filament with a confident core in rows 8..11
+    labels[25:30, 5:10] = 2  # a faint blob
+    prob = np.zeros((40, 40), np.uint8)
+    prob[5:15, 5:35] = 100
+    prob[8:12, 5:35] = 200
+    prob[25:30, 5:10] = 120
+    areas = np.array([300, 25])
+    boxes = np.array([[5, 5, 30, 10], [5, 25, 5, 5]])
+    out, out_areas, out_boxes = cut(labels, areas, boxes, prob, 0.6)
+    assert out_areas.tolist() == [120] and out_boxes.tolist() == [[5, 8, 30, 4]]
+    assert set(np.unique(out)) == {0, 1}

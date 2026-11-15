@@ -126,6 +126,22 @@ def predict_tiled(model, frame: torch.Tensor, device, tile: int = TILE, stride: 
     return (total / weight).mul(255).round().to(torch.uint8).numpy()
 
 
+# (quarter turns, mirrored) of the 8 views of the square; the first four are identity, flips and half turn
+VIEWS = [(0, False), (0, True), (2, True), (2, False), (1, False), (1, True), (3, False), (3, True)]
+
+
+def predict_views(model, frame: torch.Tensor, device, views: int = 8) -> np.ndarray:
+    """uint8 (H, W) mean of `predict_tiled` over the first `views` flips and quarter turns, each turned back."""
+    total = torch.zeros(frame.shape[1:])
+    for turns, flip in VIEWS[:views]:
+        view = torch.rot90(frame, turns, dims=(-2, -1))
+        view = view.flip(-1) if flip else view
+        prob = torch.from_numpy(predict_tiled(model, view.contiguous(), device)).float()
+        prob = prob.flip(-1) if flip else prob
+        total += torch.rot90(prob, -turns, dims=(-2, -1))
+    return total.div(views).round().to(torch.uint8).numpy()
+
+
 def train(name: str, train_files: list[str], train_dir, annotations, device, seed: int, log=print):
     """The experiment's network trained on `train_files` with its loss and label: (model, epoch losses)."""
     network, loss, label = EXPERIMENTS[name]
