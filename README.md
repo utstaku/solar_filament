@@ -6,6 +6,28 @@ GONG Hα全球画像（2048×2048, 8bitグレースケール）からフィラ�
 評価は Panoptic Quality（IoU > 0.5 でTP）。提出は1行=1フィラメントのCSV（`filament_id`, `segmentation_rle`）。
 コンペ仕様・データの知見・アーキテクチャ調査は [docs/research.md](docs/research.md)。
 
+## Reproducing the final submission
+
+`final_pipeline.ipynb` (source: `solution/final/pipeline.py`) turns the 180 test frames into `submission.csv`
+with nothing retrained. It loads `weights/`:
+
+| file | what |
+|---|---|
+| `swin_unet_boundary_full_fp16.pt` | Swin U-Net (Swin-T encoder, U-Net decoder, boundary-weighted loss) trained on all 707 frames |
+| `final_config.json` | post-processing: hysteresis 0.6 / 0.45, join, filter cutoff 0.4, outlines cut at probability 0.6 |
+| `final_filter_table.csv` | the component filter's training set; the pipeline fits the filter (fixed seed, seconds) from it |
+
+```bash
+pip install -r requirements.txt
+export FILAMENT_DATA=/path/to/MAGFiLO_1.0_Kaggle_2026   # the competition data (on Kaggle: found under /kaggle/input)
+# then run final_pipeline.ipynb in Jupyter from the repository root; it writes ./submission.csv
+```
+
+The notebook is self-contained: its first cells write the modules it imports (copies of this repository's).
+A T4 GPU takes about 20 minutes (8 flips and turns per frame); a CPU works but takes hours. The output matches
+the submitted file (99.5 % of filaments with IoU > 0.95). Out-of-fold PQ on the 707 training frames: 0.4357,
+public leaderboard 0.37. How each part was chosen: `report/report.pdf`, and `solution/zoo/` for the experiments.
+
 ## リポジトリの構成
 
 ```
