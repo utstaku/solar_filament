@@ -96,14 +96,19 @@ on a filament pixel, D4 rotations and flips), 16 epochs, AdamW with a one-cycle 
 
 ## Swin U-Net with boundary loss (final model)
 
-\begin{framed}
-\textbf{[TEAMMATE TO FILL, $\le$ 12 lines]} Architecture (encoder, pretrained weights, input channels),
-loss (boundary weighting), training schedule, folds vs full-data model, 8-view TTA, the post-processing
-used for the final submission (hysteresis 0.6/0.45, masks cut at 0.6; join + GBM filter in the 11-09 run),
-OOF 0.4223 $\rightarrow$ 0.4357, LB 0.37. Also the model zoo results (boundary BCE 0.4045, Swin U-Net 0.4216 OOF)
-and the pretrained-encoder U-Nets that did not beat the plain U-Net (EfficientNet-B3 0.373, ConvNeXt-Tiny 0.352
-vs 0.377 on one split).
-\end{framed}
+A U-Net decoder on timm's ImageNet Swin-T encoder (2 input channels as in §4.1, 8 × 8 windows on 512 px tiles),
+with two small convolutional stages at full and half resolution for the 10–20 px wide filaments
+(`models/swin_unet.py`). Loss: BCE + Dice on the soft target, with the BCE of a 3 px band around each filament's
+border weighted ×5, since near misses lose their borders and faint ends, not their cores. Training as in §4.1
+(16 epochs, encoder learning rate 1e-4); 37 min per fold on a T4, five folds for OOF maps, then one model on all
+707 frames for the test. Inference: the mean of the 8 flips and quarter turns, +0.004 [+0.000, +0.007] OOF.
+Post-processing: hysteresis 0.6/0.45, join and filter (§5), then each kept filament is cut to its pixels with
+p ≥ 0.6, +0.006: the network's 0.3 contour is wider than the annotators' (median kept area 1,388 → 1,205 px).
+OOF PQ 0.4223 → **0.4357** [+0.009, +0.018], public LB 0.37. In a ten-model zoo on the same folds and
+post-processing, the Swin encoder (0.4216) and the boundary loss (U-Net 0.3983 → 0.4045) were the two gains;
+HRNet-W18 0.397, SegFormer 0.382, Skeleton Recall loss 0.415 and weight averaging (EMA) did not help, a second
+seed (+0.004) was not worth doubling the model, and averaging with the CNN U-Net's map lowered PQ at every weight
+(w = 0.8: −0.004 [−0.007, −0.000]).
 
 # Post-processing: from a probability map to filaments
 
@@ -179,7 +184,8 @@ On the 106-frame validation split (CNN U-Net + A0, `outputs/cnn-baseline-predict
 PQ 0.378 = SQ 0.665 × RQ 0.568. The median IoU of matched filaments is 0.667, and the median predicted/true
 area ratio is 1.07 (masks are not systematically too thin or too thick). On the 707 OOF frames, joining
 lowered the fragment count while keeping merges rare: TP 4,674 → 4,782 and FP 3,244 → 3,130 for A0 →
-join-then-filter (`final_join.py`). **[TO ADD: the same table for the final Swin pipeline.]**
+join-then-filter (`final_join.py`). With the final Swin pipeline (§4.2) on the 707 OOF frames: TP 5,240,
+FP 2,846, FN 2,959, PQ 0.4357 = SQ 0.677 × RQ 0.644.
 
 # Limitations
 
@@ -198,5 +204,8 @@ Everything runs as Kaggle notebooks generated from the scripts by one command
 Order: `cnn_baseline/main.py` (train, ~40 min T4) → `predict.py` → `cv.py` (5-fold OOF) →
 `final_join.py` (CPU). The pipeline notebook `pipeline.ipynb` walks through one frame end to end.
 83 unit tests on synthetic frames cover disk detection, the metric, RLE, post-processing, joining
-and the break-even rule. Dependencies: `requirements.txt` (`uv export`). **[TEAMMATE: Swin training and
-inference commands.]**
+and the break-even rule. Dependencies: `requirements.txt` (`uv export`).
+**Final submission** (Swin): `zoo/swin_unet_boundary.py` (5-fold OOF, ~3.5 h T4) → `zoo/swin_unet_boundary_full.py`
+(all frames, 45 min) → `zoo/tta.py` (8-view maps) → `final/export.py` (CPU: fits the post-processing, writes
+`weights/`) → **`final/pipeline.py`** (`final_pipeline.ipynb`): loads `weights/` and writes `submission.csv`
+from the test frames with nothing retrained, ~20 min on a T4.

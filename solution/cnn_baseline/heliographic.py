@@ -107,7 +107,23 @@ def rotate_mask(
     when it differs (frames from different sites). `rate` (deg / day) replaces differential rotation by a
     rigid one, for comparison.
     """
-    height, width = mask.shape
+    return rotate_image(mask, centre, radius, b0_from, b0_to, days, p, source_disk, rate, fill=False)
+
+
+def rotate_image(
+    image: np.ndarray,
+    centre,
+    radius,
+    b0_from: float,
+    b0_to: float,
+    days: float,
+    p: float = 0.0,
+    source_disk=None,
+    rate: float | None = None,
+    fill=0,
+):
+    """Any (H x W) array of a frame moved as `rotate_mask` moves a mask; pixels with no source get `fill`."""
+    height, width = image.shape
     ys, xs = np.mgrid[0:height, 0:width]
     lat, lon, on_disk = pixel_to_heliographic(xs, ys, centre, radius, b0_to, p)
     shift = (synodic_rate(lat) if rate is None else rate) * days
@@ -116,6 +132,6 @@ def rotate_mask(
     sx = np.rint(np.nan_to_num(sx, nan=-1)).astype(int)
     sy = np.rint(np.nan_to_num(sy, nan=-1)).astype(int)
     ok = on_disk & visible & (sx >= 0) & (sx < width) & (sy >= 0) & (sy < height)
-    moved = np.zeros(mask.shape, bool)
-    moved[ok] = mask[sy[ok], sx[ok]]
+    moved = np.full(image.shape, fill, image.dtype)
+    moved[ok] = image[sy[ok], sx[ok]]
     return moved

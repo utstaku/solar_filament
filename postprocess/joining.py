@@ -19,9 +19,8 @@ import numpy as np
 import pandas as pd
 from scipy import ndimage
 
-from cnn_baseline.postprocess import select
-from cnn_baseline.variants import label_stats, merge
 from error_analysis.instances import FrameContext, overlaps
+from postprocess.instances import label_stats, merge, select
 from preprocess.disk import REL_SCALE
 from scoring.metric import InstanceCrop
 

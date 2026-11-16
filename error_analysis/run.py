@@ -20,7 +20,7 @@ from preprocess.images import read_gray
 from scoring.metric import instance_crops
 
 Instances = Callable[..., tuple[np.ndarray, np.ndarray, np.ndarray]]
-"""(prob, **params) -> (label map, areas, boxes), e.g. cnn_baseline.postprocess.instances."""
+"""(prob, **params) -> (label map, areas, boxes), e.g. postprocess.instances.instances."""
 
 
 Prediction = tuple[np.ndarray, np.ndarray, np.ndarray]

@@ -21,24 +21,16 @@ import time
 import numpy as np
 import pandas as pd
 
-from cnn_baseline.filtering import (
-    ComponentFilter,
-    component_table,
-    frame_context,
-    matched_by_any_annotator,
-    out_of_fold_scores,
-)
-from cnn_baseline.importance import best_cutoff, fit_r, paired_bootstrap, pq_of, public_pq
-from cnn_baseline.pairs import join_pairs, join_rule, pair_table
-from cnn_baseline.postprocess import instances, select
+from cnn_baseline.importance import fit_r, paired_bootstrap, public_pq
 from dataset.annotations import load_annotations
 from dataset.paths import find_data_root, find_input, output_dir
+from postprocess import pipeline
+from postprocess.filtering import frame_context
+from postprocess.tuning import pq_of
 from preprocess.images import read_gray
 from scoring import submission
 from scoring.metric import instance_crops
 
-A0 = {"threshold": 0.5, "min_area": 300, "low": 0.3}
-PAIR_RADIUS = 50
 A0_PUBLIC = 0.33  # what predict.py's A0 scored on the public leaderboard (shown to two decimals)
 T0 = time.time()
 
@@ -70,40 +62,9 @@ truth = {f: [instance_crops(rles) for rles in annotations.rles_for_file(f)] for 
 log(f"{len(files)} training and {len(test_files)} test frames")
 
 # %% [markdown]
-# ## A0 and join_then_filter (as in `oof_lab.py`)
+# ## A0 and join_then_filter (`postprocess.pipeline`, without and with the join)
 
 # %%
-
-
-def compact(inst):
-    labels, areas, boxes = inst
-    return labels.astype(np.uint8), areas, boxes
-
-
-def joined(inst, f):
-    labels = inst[0]
-    t = pair_table(contexts[f], labels, PAIR_RADIUS)
-    return join_pairs(labels, t, join_rule(t)) if len(t) else inst
-
-
-def filtered(make_raw) -> dict:
-    raw = {f: compact(make_raw(f)) for f in files}
-    table = pd.concat(
-        [component_table(contexts[f], raw[f][0], raw[f][2]) for f in files if len(raw[f][1])], ignore_index=True
-    )
-    target = np.concatenate([matched_by_any_annotator(truth[f], raw[f][0], raw[f][1]) for f in files])
-    oof = out_of_fold_scores(table, target)
-    cutoff, terms = best_cutoff(oof, raw, table, truth, files)
-    model = ComponentFilter(cutoff=cutoff).fit(table, target)
-
-    def test(f):
-        inst = make_raw(f)
-        if not len(inst[1]):
-            return inst
-        return select(*inst, model.keep(component_table(contexts[f], inst[0], inst[2])))
-
-    kept_val = int((oof >= cutoff).sum())
-    return {"terms": terms, "cutoff": cutoff, "test": test, "per_val_frame": kept_val / len(files)}
 
 
 def summary(terms: pd.DataFrame) -> dict:
@@ -120,26 +81,26 @@ def summary(terms: pd.DataFrame) -> dict:
     }
 
 
-def write(variant: dict, path: str) -> float:
+def write(post: pipeline.Postprocess, path: str) -> float:
     rows = []
     for f in test_files:
-        labels, _, boxes = variant["test"](f)
+        labels, _, boxes = post(contexts[f])
         rows += submission.rows_from_label_map(f.rsplit(".", 1)[0], labels, boxes)
     submission.write(rows, output_dir() / path)
     return len(rows) / len(test_files)
 
 
 variants = {
-    "a0": filtered(lambda f: instances(maps[f], **A0)),
-    "join_then_filter": filtered(lambda f: joined(instances(maps[f], **A0), f)),
+    "a0": pipeline.fit(contexts, truth, files, join=False),
+    "join_then_filter": pipeline.fit(contexts, truth, files, join=True),
 }
 report = {}
-for name, v in variants.items():
-    per_test = write(v, "submission.csv" if name == "join_then_filter" else f"submission_{name}.csv")
+for name, (post, oof) in variants.items():
+    per_test = write(post, "submission.csv" if name == "join_then_filter" else f"submission_{name}.csv")
     report[name] = {
-        **summary(v["terms"]),
-        "cutoff": v["cutoff"],
-        "kept_per_val_frame": round(v["per_val_frame"], 2),
+        **summary(oof.terms),
+        "cutoff": oof.cutoff,
+        "kept_per_val_frame": round(oof.kept_per_frame, 2),
         "kept_per_test_frame": round(per_test, 2),
     }
     log(name, report[name])
@@ -152,14 +113,14 @@ for name, v in variants.items():
 # constant factor, and on A0's public score being known only to two decimals (0.325-0.335).
 
 # %%
-delta, lo, hi = paired_bootstrap(variants["a0"]["terms"], variants["join_then_filter"]["terms"])
+delta, lo, hi = paired_bootstrap(variants["a0"][1].terms, variants["join_then_filter"][1].terms)
 report["delta_vs_a0"] = {"delta": round(delta, 4), "ci95": [round(lo, 4), round(hi, 4)]}
 report["expected_public"] = {}
 for public in (A0_PUBLIC - 0.005, A0_PUBLIC, A0_PUBLIC + 0.005):
-    r = fit_r(variants["a0"]["terms"], public)
+    r = fit_r(variants["a0"][1].terms, public)
     report["expected_public"][f"a0_at_{public:.3f}"] = {
         "r": round(r, 3),
-        "join_then_filter": round(public_pq(variants["join_then_filter"]["terms"], r), 4),
+        "join_then_filter": round(public_pq(variants["join_then_filter"][1].terms, r), 4),
     }
 print(json.dumps(report, indent=2))
 (output_dir() / "final_report.json").write_text(json.dumps(report, indent=2))

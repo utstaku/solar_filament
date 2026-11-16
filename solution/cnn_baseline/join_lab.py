@@ -30,7 +30,11 @@ from sklearn.metrics import roc_auc_score
 from sklearn.model_selection import GroupKFold
 
 from cnn_baseline.data import split_files
-from cnn_baseline.filtering import (
+from cnn_baseline.importance import paired_bootstrap
+from cnn_baseline.variants import join, score_frames
+from dataset.annotations import load_annotations
+from dataset.paths import find_data_root, find_input, output_dir
+from postprocess.filtering import (
     ComponentFilter,
     component_table,
     frame_context,
@@ -38,12 +42,9 @@ from cnn_baseline.filtering import (
     out_of_fold_scores,
     trainable,
 )
-from cnn_baseline.importance import best_cutoff, paired_bootstrap, pq_of
-from cnn_baseline.pairs import PAIR_FEATURES, aligned_end_to_end, join_pairs, pair_table, same_filament
-from cnn_baseline.postprocess import instances, select
-from cnn_baseline.variants import join, score_frames
-from dataset.annotations import load_annotations
-from dataset.paths import find_data_root, find_input, output_dir
+from postprocess.instances import instances, select
+from postprocess.joining import PAIR_FEATURES, aligned_end_to_end, join_pairs, pair_table, same_filament
+from postprocess.tuning import best_cutoff, pq_of
 from preprocess.images import read_gray
 from scoring import submission
 from scoring.metric import instance_crops

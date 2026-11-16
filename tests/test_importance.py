@@ -4,18 +4,10 @@ import pytest
 from pycocotools import mask as mask_util
 from sklearn.metrics import roc_auc_score
 
-from cnn_baseline.filtering import out_of_fold_scores
-from cnn_baseline.importance import (
-    best_cutoff,
-    drop_column,
-    fit_r,
-    frame_terms,
-    paired_bootstrap,
-    permutation_importance,
-    pq_of,
-    public_pq,
-)
-from cnn_baseline.postprocess import instances
+from cnn_baseline.importance import drop_column, fit_r, paired_bootstrap, permutation_importance, public_pq
+from postprocess.filtering import out_of_fold_scores
+from postprocess.instances import instances
+from postprocess.tuning import best_cutoff, frame_terms, pq_of
 from scoring.metric import PanopticQuality, instance_crops
 
 

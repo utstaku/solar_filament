@@ -1,0 +1,14 @@
+{
+  "model": "swin_unet_boundary_full_fp16.pt",
+  "views": 8,
+  "params": {
+    "threshold": 0.6,
+    "min_area": 300,
+    "low": 0.45
+  },
+  "join": true,
+  "filter_cutoff": 0.4,
+  "mask_cut": 0.6,
+  "oof_pq_before_cut": 0.4329,
+  "candidates": 7397
+}

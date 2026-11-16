@@ -3,16 +3,8 @@ import pandas as pd
 import pytest
 from pycocotools import mask as mask_util
 
-from cnn_baseline.postprocess import instances
-from cnn_baseline.variants import (
-    expected_gain,
-    grow,
-    join,
-    label_stats,
-    out_of_fold_gain,
-    score_frames,
-    strict_keep,
-)
+from cnn_baseline.variants import expected_gain, grow, join, out_of_fold_gain, score_frames, strict_keep
+from postprocess.instances import instances, label_stats
 from scoring.metric import PanopticQuality, instance_crops
 
 

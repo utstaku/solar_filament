@@ -4,7 +4,7 @@ solution/ holds one directory per approach, e.g. solution/unet/, whose scripts a
 solution/unet/train.py becomes the notebook `filament-unet-train`, solution/unet/predict.py
 `filament-unet-predict`; a directory's main.py is named after the directory alone. The scripts of
 error_analysis/ are entries too: error_analysis/cnn_errors.py becomes `filament-error-analysis-cnn-errors`.
-The shared packages at the repository root (dataset/, scoring/, preprocess/, models/) are shipped the same way.
+The shared packages at the repository root (dataset/, scoring/, preprocess/, postprocess/, models/) are shipped the same way.
 
 The generated notebook has three parts:
   1. the entry's own title, then a note saying the notebook is generated;

@@ -10,7 +10,10 @@ from synthetic import SIZE, make_frame
 from torch.utils.data import DataLoader
 
 from cnn_baseline.data import FilamentFrames, channels, collate_tiles, fold_files, soft_target
-from cnn_baseline.filtering import (
+from cnn_baseline.training import bce_dice_loss, fit, predict, predict_tta
+from dataset.annotations import load_annotations
+from models.unet import UNet
+from postprocess.filtering import (
     ComponentFilter,
     component_table,
     frame_context,
@@ -18,10 +21,7 @@ from cnn_baseline.filtering import (
     out_of_fold_scores,
     trainable,
 )
-from cnn_baseline.postprocess import instances, on_disk, select
-from cnn_baseline.training import bce_dice_loss, fit, predict, predict_tta
-from dataset.annotations import load_annotations
-from models.unet import UNet
+from postprocess.instances import instances, on_disk, select
 from preprocess.images import read_gray
 from scoring.metric import PanopticQuality, instance_crops
 
@@ -252,3 +252,38 @@ def test_predict_tta_turns_every_view_back():
     assert np.abs(plain.astype(int) - averaged.astype(int)).max() > 10  # its answer depends on the view
     _, single = next(predict_tta(sideways, [frame], device=torch.device("cpu"), views=1))
     assert np.array_equal(single, plain)
+
+
+def test_skeleton_recall_punishes_a_gap_across_a_filament():
+    from cnn_baseline.training import skeleton_recall_bce_dice_loss, soft_skeleton
+
+    target = torch.zeros(1, 64, 128)
+    target[0, 26:38, 10:118] = 1
+    skeleton = soft_skeleton(target)[0] > 0.5
+    assert skeleton.any() and set(torch.nonzero(skeleton)[:, 0].tolist()) <= {31, 32}
+    whole = (target * 2 - 1).unsqueeze(1) * 8
+    cut = whole.clone()
+    cut[..., 60:70] = -8
+    extra = [skeleton_recall_bce_dice_loss(x, target) - bce_dice_loss(x, target) for x in (whole, cut)]
+    assert extra[0] < 0.01 and extra[1] > 0.05
+    empty = torch.zeros(2, 32, 32)
+    assert torch.isclose(
+        skeleton_recall_bce_dice_loss(empty.unsqueeze(1) - 8, empty), bce_dice_loss(empty.unsqueeze(1) - 8, empty)
+    )
+
+
+def test_fit_with_ema_returns_the_averaged_weights():
+    """The same run with `ema` ends on other weights than without (their average), after the same steps."""
+    from cnn_baseline.training import fit
+
+    x, y = torch.rand(8, 2, 16, 16), (torch.rand(8, 16, 16) > 0.5).float()
+    loader = torch.utils.data.DataLoader(torch.utils.data.TensorDataset(x, y), batch_size=4)
+    runs = {}
+    for ema in (None, 0.9):
+        torch.manual_seed(0)
+        model = torch.nn.Conv2d(2, 1, 3, padding=1)
+        history = fit(model, loader, epochs=3, device=torch.device("cpu"), log=lambda *a: None, ema=ema)
+        runs[ema] = (history, model.weight.detach().clone())
+    assert runs[None][0] == runs[0.9][0]
+    assert not torch.allclose(runs[None][1], runs[0.9][1])
+    assert torch.isfinite(runs[0.9][1]).all()

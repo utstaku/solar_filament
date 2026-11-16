@@ -26,7 +26,11 @@ import torch
 
 import error_analysis.run
 from cnn_baseline.data import channels, split_files
-from cnn_baseline.filtering import (
+from cnn_baseline.training import pick_device, predict
+from dataset.annotations import load_annotations
+from dataset.paths import find_data_root, find_input, output_dir
+from models.unet import UNet
+from postprocess.filtering import (
     ComponentFilter,
     component_table,
     frame_context,
@@ -34,11 +38,7 @@ from cnn_baseline.filtering import (
     out_of_fold_scores,
     trainable,
 )
-from cnn_baseline.postprocess import instances, select
-from cnn_baseline.training import pick_device, predict
-from dataset.annotations import load_annotations
-from dataset.paths import find_data_root, find_input, output_dir
-from models.unet import UNet
+from postprocess.instances import instances, select
 from preprocess.images import read_gray
 from scoring import submission
 from scoring.metric import PanopticQuality, instance_crops
