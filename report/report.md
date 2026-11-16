@@ -1,6 +1,6 @@
 ---
 title: "Solar Filament Segmentation Challenge 2026: technical report"
-author: "Team [TEAM NAME] — [authors]"
+author: "Team SP Seminar — Takuro Abe and Mei Kanda"
 date: "15 November 2026"
 geometry: "a4paper,margin=2cm"
 fontsize: 10pt
